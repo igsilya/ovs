@@ -46,6 +46,8 @@ VLOG_DEFINE_THIS_MODULE(conntrack);
 COVERAGE_DEFINE(conntrack_full);
 COVERAGE_DEFINE(conntrack_long_cleanup);
 COVERAGE_DEFINE(conntrack_l4csum_err);
+COVERAGE_DEFINE(conntrack_ip_csum_err);
+COVERAGE_DEFINE(conntrack_key_extract_failure);
 
 struct conn_lookup_ctx {
     struct conn_key key;
@@ -1426,6 +1428,7 @@ conntrack_execute(struct conntrack *ct, struct dp_packet_batch *pkt_batch,
                              conn, packet);
         } else if (OVS_UNLIKELY(!conn_key_extract(ct, packet, dl_type, &ctx,
                                 zone))) {
+            COVERAGE_INC(conntrack_key_extract_failure);
             packet->md.ct_state = CS_INVALID;
             write_ct_md(packet, zone, NULL, NULL, NULL);
         } else {
@@ -1613,6 +1616,7 @@ extract_l3_ipv4(struct conn_key *key, const void *data, size_t size,
     }
 
     if (validate_checksum && csum(data, ip_len) != 0) {
+        COVERAGE_INC(conntrack_ip_csum_err);
         return false;
     }
 
@@ -2050,6 +2054,7 @@ conn_key_extract(struct conntrack *ct, struct dp_packet *pkt, ovs_be16 dl_type,
     if (ctx->key.dl_type == htons(ETH_TYPE_IP)) {
         bool hwol_bad_l3_csum = dp_packet_ip_checksum_bad(pkt);
         if (hwol_bad_l3_csum) {
+            COVERAGE_INC(conntrack_ip_csum_err);
             ok = false;
         } else {
             bool hwol_good_l3_csum = dp_packet_ip_checksum_valid(pkt)
