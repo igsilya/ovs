@@ -27,6 +27,7 @@
 #include <unistd.h>
 #endif /* __linux__ */
 
+#include "dpdk.h"
 #include "hash.h"
 #include "openvswitch/hmap.h"
 #include "openvswitch/list.h"
@@ -57,6 +58,13 @@ VLOG_DEFINE_THIS_MODULE(ovs_numa);
  */
 
 #define MAX_NUMA_NODES 128
+
+#ifdef DPDK_NETDEV
+/* DPDK will not work correctly for cores with core_id >= RTE_MAX_LCORE. */
+#define MAX_CORE_ID    (RTE_MAX_LCORE - 1)
+#else
+#define MAX_CORE_ID    INT_MAX
+#endif
 
 /* numa node. */
 struct numa_node {
@@ -112,6 +120,12 @@ insert_new_numa_node(int numa_id)
 static struct cpu_core *
 insert_new_cpu_core(struct numa_node *n, unsigned core_id)
 {
+    if (core_id > MAX_CORE_ID) {
+        VLOG_DBG("Ignoring CPU core with id %u ( %u > %d).",
+                 core_id, core_id, MAX_CORE_ID);
+        return NULL;
+    }
+
     struct cpu_core *c = xzalloc(sizeof *c);
 
     hmap_insert(&all_cpu_cores, &c->hmap_node, hash_int(core_id, 0));
@@ -278,6 +292,11 @@ ovs_numa_init(void)
     if (ovsthread_once_start(&once)) {
         const struct numa_node *n;
 
+        if (MAX_CORE_ID != INT_MAX) {
+            VLOG_INFO("Maximum allowed CPU core id is %d. "
+                      "Other cores will not be available.", MAX_CORE_ID);
+        }
+
         if (dummy_numa) {
             discover_numa_and_core_dummy();
         } else {
@@ -424,11 +443,13 @@ ovs_numa_dump_cores_on_numa(int numa_id)
 }
 
 struct ovs_numa_dump *
-ovs_numa_dump_cores_with_cmask(const char *cmask)
+ovs_numa_dump_cores_with_cmask(const char *cmask, int limit, bool *limited)
 {
     struct ovs_numa_dump *dump = ovs_numa_dump_create();
     int core_id = 0;
     int end_idx;
+
+    *limited = false;
 
     /* Ignore leading 0x. */
     end_idx = 0;
@@ -450,10 +471,15 @@ ovs_numa_dump_cores_with_cmask(const char *cmask)
             if ((bin >> j) & 0x1) {
                 struct cpu_core *core = get_core_by_core_id(core_id);
 
-                if (core) {
+                if (core && ovs_numa_dump_count(dump) < limit) {
                     ovs_numa_dump_add(dump,
                                       core->numa->numa_id,
                                       core->core_id);
+                } else if (ovs_numa_dump_count(dump) >= limit) {
+                    VLOG_DBG("Reached the limit for number of CPUs in cmask. "
+                             "Core %d on numa %d from cmask will not be used.",
+                             core->core_id, core->numa->numa_id);
+                    *limited = true;
                 }
             }
 
@@ -465,11 +491,12 @@ ovs_numa_dump_cores_with_cmask(const char *cmask)
 }
 
 struct ovs_numa_dump *
-ovs_numa_dump_n_cores_per_numa(int cores_per_numa)
+ovs_numa_dump_n_cores_per_numa(int cores_per_numa, int limit, bool *limited)
 {
     struct ovs_numa_dump *dump = ovs_numa_dump_create();
     const struct numa_node *n;
 
+    *limited = false;
     HMAP_FOR_EACH (n, hmap_node, &all_numa_nodes) {
         const struct cpu_core *core;
         int i = 0;
@@ -477,6 +504,10 @@ ovs_numa_dump_n_cores_per_numa(int cores_per_numa)
         LIST_FOR_EACH (core, list_node, &n->cores) {
             if (i++ >= cores_per_numa) {
                 break;
+            }
+            if (ovs_numa_dump_count(dump) >= limit) {
+                *limited = true;
+                return dump;
             }
 
             ovs_numa_dump_add(dump, core->numa->numa_id, core->core_id);

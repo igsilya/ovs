@@ -5178,18 +5178,29 @@ reconfigure_pmd_threads(struct dp_netdev *dp)
     struct ovs_numa_info_core *core;
     struct hmapx to_delete = HMAPX_INITIALIZER(&to_delete);
     struct hmapx_node *node;
-    bool changed = false;
+    bool limited, changed = false;
     bool need_to_adjust_static_tx_qids = false;
 
     /* The pmd threads should be started only if there's a pmd port in the
      * datapath.  If the user didn't provide any "pmd-cpu-mask", we start
      * NR_PMD_THREADS per numa node. */
     if (!has_pmd_port(dp)) {
-        pmd_cores = ovs_numa_dump_n_cores_per_numa(0);
+        pmd_cores = ovs_numa_dump_n_cores_per_numa(0, INT_MAX, &limited);
     } else if (dp->pmd_cmask && dp->pmd_cmask[0]) {
-        pmd_cores = ovs_numa_dump_cores_with_cmask(dp->pmd_cmask);
+        pmd_cores = ovs_numa_dump_cores_with_cmask(dp->pmd_cmask,
+                                                   MAX_PMD_THREADS, &limited);
+        if (limited) {
+            VLOG_WARN("Too many cores in pmd-cpu-mask. Only %d will be used.",
+                      MAX_PMD_THREADS);
+        }
     } else {
-        pmd_cores = ovs_numa_dump_n_cores_per_numa(NR_PMD_THREADS);
+        pmd_cores = ovs_numa_dump_n_cores_per_numa(NR_PMD_THREADS,
+                                                   MAX_PMD_THREADS, &limited);
+        if (limited) {
+            VLOG_WARN("Can't create %d cores per numa node: Too many cores. "
+                      "Only %d cores in total will be used.",
+                      NR_PMD_THREADS, MAX_PMD_THREADS);
+        }
     }
 
     /* We need to adjust 'static_tx_qid's only if we're reducing number of

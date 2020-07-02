@@ -55,8 +55,10 @@ int ovs_numa_get_n_cores(void);
 int ovs_numa_get_numa_id(unsigned core_id);
 int ovs_numa_get_n_cores_on_numa(int numa_id);
 struct ovs_numa_dump *ovs_numa_dump_cores_on_numa(int numa_id);
-struct ovs_numa_dump *ovs_numa_dump_cores_with_cmask(const char *cmask);
-struct ovs_numa_dump *ovs_numa_dump_n_cores_per_numa(int n);
+struct ovs_numa_dump *ovs_numa_dump_cores_with_cmask(const char *cmask,
+                                                     int limit, bool *limited);
+struct ovs_numa_dump *ovs_numa_dump_n_cores_per_numa(int n, int limit,
+                                                     bool *limited);
 bool ovs_numa_dump_contains_core(const struct ovs_numa_dump *,
                                  int numa_id, unsigned core_id);
 size_t ovs_numa_dump_count(const struct ovs_numa_dump *);

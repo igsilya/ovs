@@ -25,10 +25,12 @@
 #include <rte_lcore.h>
 
 #define NON_PMD_CORE_ID LCORE_ID_ANY
+#define MAX_PMD_THREADS RTE_MAX_LCORE
 
 #else
 
 #define NON_PMD_CORE_ID UINT32_MAX
+#define MAX_PMD_THREADS INT_MAX
 
 #endif /* DPDK_NETDEV */
 
