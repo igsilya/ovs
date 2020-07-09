@@ -293,8 +293,8 @@ ovs_numa_init(void)
         const struct numa_node *n;
 
         if (MAX_CORE_ID != INT_MAX) {
-            VLOG_INFO("Maximum allowed CPU core id is %d. "
-                      "Other cores will not be available.", MAX_CORE_ID);
+            VLOG_DBG("Maximum allowed CPU core id is %d. "
+                     "Other cores will not be available.", MAX_CORE_ID);
         }
 
         if (dummy_numa) {
