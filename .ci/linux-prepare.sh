@@ -20,7 +20,9 @@ cd sparse
 make -j4 HAVE_LLVM= HAVE_SQLITE= install
 cd ..
 
-pip3 install --disable-pip-version-check --user flake8 hacking
+pip3 install --disable-pip-version-check --user --upgrade pip
+pip3 --version
+pip3 install --user flake8 hacking
 pip3 install --user --upgrade docutils
 pip3 install --user  'meson==0.47.1'
 
