@@ -28,6 +28,7 @@ backtrace full
 quit
 y
 " >> $ovs_base/$1/gdb.out 2>&1 &
+  AT_CHECK([ipsec whack --ctlsocket $ovs_base/$1/pluto.ctl --debug all])
 ])
 
 dnl IPSEC_ADD_NODE([namespace], [device], [address], [peer address]))
