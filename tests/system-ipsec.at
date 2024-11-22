@@ -525,7 +525,7 @@ dnl way that can not be mitigated from ovs-monitor-ipsec or the test.
 dnl So, only checking connectivity for Libreswan 3- or 5+.
 dnl Skipping in the middle of the test, so test can still fail while
 dnl testing with Libreswan 4, if the first half fails.
-AT_SKIP_IF([ipsec --version 2>&1 | grep -q 'Libreswan 4\.'])
+dnl AT_SKIP_IF([ipsec --version 2>&1 | grep -q 'Libreswan 4\.'])
 
 dnl Turn off IPv6 and add static ARP entries for all namespaces to avoid
 dnl any broadcast / multicast traffic that would otherwise be multiplied
