@@ -19,6 +19,7 @@
 #include "raft-private.h"
 
 #include "coverage.h"
+#include "openvswitch/jsmap.h"
 #include "openvswitch/dynamic-string.h"
 #include "ovsdb-error.h"
 #include "ovsdb-parser.h"
@@ -210,21 +211,21 @@ raft_servers_from_json__(const struct json *json, struct hmap *servers)
 {
     if (!json || json->type != JSON_OBJECT) {
         return ovsdb_syntax_error(json, NULL, "servers must be JSON object");
-    } else if (shash_is_empty(json_object(json))) {
+    } else if (jsmap_is_empty(json_object(json))) {
         return ovsdb_syntax_error(json, NULL, "must have at least one server");
     }
 
     /* Parse new servers. */
-    struct shash_node *node;
-    SHASH_FOR_EACH (node, json_object(json)) {
+    struct jsmap_node *node;
+    JSMAP_FOR_EACH (node, json_object(json)) {
         /* Parse server UUID. */
         struct uuid sid;
-        if (!uuid_from_string(&sid, node->name)) {
+        if (!uuid_from_string(&sid, json_string(node->key))) {
             return ovsdb_syntax_error(json, NULL, "%s is not a UUID",
-                                      node->name);
+                                      json_string(node->key));
         }
 
-        const struct json *address = node->data;
+        const struct json *address = node->value;
         struct ovsdb_error *error = raft_address_validate_json(address);
         if (error) {
             return error;

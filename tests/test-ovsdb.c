@@ -26,6 +26,7 @@
 #include "byte-order.h"
 #include "command-line.h"
 #include "openvswitch/dynamic-string.h"
+#include "openvswitch/jsmap.h"
 #include "openvswitch/json.h"
 #include "jsonrpc.h"
 #include "ovsdb-data.h"
@@ -2397,10 +2398,10 @@ parse_uuids(const struct json *json, struct ovsdb_symbol_table *symtab,
             parse_uuids(json_array_at(json, i), symtab, n);
         }
     } else if (json->type == JSON_OBJECT) {
-        const struct shash_node *node;
+        const struct jsmap_node *node;
 
-        SHASH_FOR_EACH (node, json_object(json)) {
-            parse_uuids(node->data, symtab, n);
+        JSMAP_FOR_EACH (node, json_object(json)) {
+            parse_uuids(node->value, symtab, n);
         }
     }
 }
@@ -2427,10 +2428,10 @@ substitute_uuids(struct json *json, const struct ovsdb_symbol_table *symtab)
                              symtab);
         }
     } else if (json->type == JSON_OBJECT) {
-        const struct shash_node *node;
+        const struct jsmap_node *node;
 
-        SHASH_FOR_EACH (node, json_object(json)) {
-            substitute_uuids(node->data, symtab);
+        JSMAP_FOR_EACH (node, json_object(json)) {
+            substitute_uuids(node->value, symtab);
         }
     }
 }

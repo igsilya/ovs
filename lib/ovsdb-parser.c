@@ -20,6 +20,7 @@
 #include <ctype.h>
 #include <stdarg.h>
 
+#include "openvswitch/jsmap.h"
 #include "ovsdb-error.h"
 
 void
@@ -71,7 +72,7 @@ ovsdb_parser_member(struct ovsdb_parser *parser, const char *name,
         return NULL;
     }
 
-    value = shash_find_data(json_object(parser->json), name);
+    value = json_object_find(parser->json, name);
     if (!value) {
         if (!(types & OP_OPTIONAL)) {
             ovsdb_parser_raise_error(parser,
@@ -151,26 +152,28 @@ struct ovsdb_error *
 ovsdb_parser_finish(struct ovsdb_parser *parser)
 {
     if (!parser->error) {
-        const struct shash *object = json_object(parser->json);
+        const struct jsmap *object = json_object(parser->json);
         size_t n_unused;
 
-        n_unused = shash_count(object) - sset_count(&parser->used);
+        n_unused = jsmap_count(object) - sset_count(&parser->used);
         if (n_unused) {
-            struct shash_node *node;
+            struct jsmap_node *node;
 
-            SHASH_FOR_EACH (node, object) {
-                if (!sset_contains(&parser->used, node->name)) {
+            JSMAP_FOR_EACH (node, object) {
+                const char *name = json_string(node->key);
+
+                if (!sset_contains(&parser->used, name)) {
                     if (n_unused > 1) {
                         ovsdb_parser_raise_error(
                             parser,
                             "Member '%s' and %"PRIuSIZE" other member%s "
                             "are present but not allowed here.",
-                            node->name, n_unused - 1, n_unused > 2 ? "s" : "");
+                            name, n_unused - 1, n_unused > 2 ? "s" : "");
                     } else {
                         ovsdb_parser_raise_error(
                             parser,
                             "Member '%s' is present but not allowed here.",
-                            node->name);
+                            name);
                     }
                     break;
                 }

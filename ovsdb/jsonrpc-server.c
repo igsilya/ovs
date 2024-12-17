@@ -30,6 +30,7 @@
 #include "ovsdb-parser.h"
 #include "ovsdb.h"
 #include "condition.h"
+#include "openvswitch/jsmap.h"
 #include "openvswitch/poll-loop.h"
 #include "reconnect.h"
 #include "row.h"
@@ -1501,7 +1502,7 @@ ovsdb_jsonrpc_monitor_create(struct ovsdb_jsonrpc_session *s, struct ovsdb *db,
     struct ovsdb_jsonrpc_monitor *m = NULL;
     struct ovsdb_monitor *dbmon = NULL;
     struct ovsdb_error *error = NULL;
-    struct shash_node *node;
+    struct jsmap_node *node;
     struct json *json;
 
     if ((version == OVSDB_MONITOR_V2 && json_array_size(params) != 3) ||
@@ -1533,22 +1534,23 @@ ovsdb_jsonrpc_monitor_create(struct ovsdb_jsonrpc_session *s, struct ovsdb *db,
     hmap_insert(&s->monitors, &m->node, json_hash(monitor_id, 0));
     m->monitor_id = json_clone(monitor_id);
 
-    SHASH_FOR_EACH (node, json_object(monitor_requests)) {
+    JSMAP_FOR_EACH (node, json_object(monitor_requests)) {
         const struct ovsdb_table *table;
         const struct json *mr_value;
         size_t i, n;
 
-        table = ovsdb_get_table(m->db, node->name);
+        table = ovsdb_get_table(m->db, json_string(node->key));
         if (!table) {
             error = ovsdb_syntax_error(NULL, NULL,
-                                       "no table named %s", node->name);
+                                       "no table named %s",
+                                       json_string(node->key));
             goto error;
         }
 
         ovsdb_monitor_add_table(m->dbmon, table);
 
         /* Parse columns. */
-        mr_value = node->data;
+        mr_value = node->value;
         if (mr_value->type == JSON_ARRAY) {
             n = json_array_size(mr_value);
             for (i = 0; i < n; i++) {
@@ -1672,7 +1674,7 @@ ovsdb_jsonrpc_monitor_cond_change(struct ovsdb_jsonrpc_session *s,
     const struct json *monitor_cond_change_reqs;
     struct ovsdb_jsonrpc_monitor *m;
     struct ovsdb_error *error;
-    struct shash_node *node;
+    struct jsmap_node *node;
 
     if (json_array_size(params) != 3) {
         error = ovsdb_syntax_error(params, NULL, "invalid parameters");
@@ -1702,25 +1704,26 @@ ovsdb_jsonrpc_monitor_cond_change(struct ovsdb_jsonrpc_session *s,
         goto error;
     }
 
-    SHASH_FOR_EACH (node, json_object(monitor_cond_change_reqs)) {
+    JSMAP_FOR_EACH (node, json_object(monitor_cond_change_reqs)) {
+        const char *table_name = json_string(node->key);
         const struct ovsdb_table *table;
         const struct json *mr_value;
         size_t i, n;
 
-        table = ovsdb_get_table(m->db, node->name);
+        table = ovsdb_get_table(m->db, table_name);
         if (!table) {
             error = ovsdb_syntax_error(NULL, NULL,
-                                       "no table named %s", node->name);
+                                       "no table named %s", table_name);
             goto error;
         }
         if (!ovsdb_monitor_table_exists(m->dbmon, table)) {
             error = ovsdb_syntax_error(NULL, NULL,
                                        "no table named %s in monitor session",
-                                       node->name);
+                                       table_name);
             goto error;
         }
 
-        mr_value = node->data;
+        mr_value = node->value;
         if (mr_value->type == JSON_ARRAY) {
             n = json_array_size(mr_value);
             for (i = 0; i < n; i++) {
@@ -1734,7 +1737,7 @@ ovsdb_jsonrpc_monitor_cond_change(struct ovsdb_jsonrpc_session *s,
             error = ovsdb_syntax_error(
                        NULL, NULL,
                        "table %s no monitor-cond-change JSON array",
-                       node->name);
+                       table_name);
             goto error;
         }
     }

@@ -24,6 +24,7 @@
 #include "jsonrpc.h"
 #include "openvswitch/dynamic-string.h"
 #include "openvswitch/hmap.h"
+#include "openvswitch/jsmap.h"
 #include "openvswitch/json.h"
 #include "openvswitch/poll-loop.h"
 #include "openvswitch/shash.h"
@@ -1370,7 +1371,7 @@ ovsdb_cs_db_parse_lock_reply(struct ovsdb_cs_db *db,
     if (result->type == JSON_OBJECT) {
         const struct json *locked;
 
-        locked = shash_find_data(json_object(result), "locked");
+        locked = json_object_find(result, "locked");
         got_lock = locked && locked->type == JSON_TRUE;
     } else {
         got_lock = false;
@@ -1516,8 +1517,8 @@ ovsdb_cs_send_monitor_request(struct ovsdb_cs *cs, struct ovsdb_cs_db *db,
         struct ovsdb_cs_db_table *table;
         HMAP_FOR_EACH (table, hmap_node, &db->tables) {
             if (table->ack_cond) {
-                struct json *mr = shash_find_data(json_object(mrs),
-                                                  table->name);
+                struct json *mr = json_object_find(mrs, table->name);
+
                 if (!mr) {
                     mr = json_array_create_empty();
                     json_object_put(mrs, table->name, mr);
@@ -1782,15 +1783,14 @@ ovsdb_cs_insert_server_row(struct ovsdb_cs *cs, const struct uuid *uuid)
 
 static void
 ovsdb_cs_update_server_row(struct server_row *row,
-                           const struct shash *update, bool xor)
+                           const struct json *update, bool xor)
 {
     for (size_t i = 0; i < N_SERVER_COLUMNS; i++) {
         const struct server_column *column = &server_columns[i];
-        struct shash_node *node = shash_find(update, column->name);
-        if (!node) {
+        const struct json *json = json_object_find(update, column->name);
+        if (!json) {
             continue;
         }
-        const struct json *json = node->data;
 
         struct ovsdb_datum *old = &row->data[i];
         struct ovsdb_datum new;
@@ -2115,7 +2115,7 @@ ovsdb_cs_parse_schema(const struct json *schema_json)
     struct ovsdb_parser parser;
     const struct json *tables_json;
     struct ovsdb_error *error;
-    struct shash_node *node;
+    struct jsmap_node *node;
     struct shash *schema;
 
     ovsdb_parser_init(&parser, schema_json, "database schema");
@@ -2128,9 +2128,9 @@ ovsdb_cs_parse_schema(const struct json *schema_json)
 
     schema = xmalloc(sizeof *schema);
     shash_init(schema);
-    SHASH_FOR_EACH (node, json_object(tables_json)) {
-        const char *table_name = node->name;
-        const struct json *json = node->data;
+    JSMAP_FOR_EACH (node, json_object(tables_json)) {
+        const char *table_name = json_string(node->key);
+        const struct json *json = node->value;
         const struct json *columns_json;
 
         ovsdb_parser_init(&parser, json, "table schema for table %s",
@@ -2146,9 +2146,9 @@ ovsdb_cs_parse_schema(const struct json *schema_json)
         struct sset *columns = xmalloc(sizeof *columns);
         sset_init(columns);
 
-        struct shash_node *node2;
-        SHASH_FOR_EACH (node2, json_object(columns_json)) {
-            const char *column_name = node2->name;
+        struct jsmap_node *node2;
+        JSMAP_FOR_EACH (node2, json_object(columns_json)) {
+            const char *column_name = json_string(node2->key);
             sset_add(columns, column_name);
         }
         shash_add(schema, table_name, columns);
@@ -2181,8 +2181,8 @@ ovsdb_cs_parse_row_update1(const struct json *in,
 {
     const struct json *old_json, *new_json;
 
-    old_json = shash_find_data(json_object(in), "old");
-    new_json = shash_find_data(json_object(in), "new");
+    old_json = json_object_find(in, "old");
+    new_json = json_object_find(in, "new");
     if (old_json && old_json->type != JSON_OBJECT) {
         return ovsdb_syntax_error(old_json, NULL,
                                   "\"old\" <row> is not object");
@@ -2190,7 +2190,7 @@ ovsdb_cs_parse_row_update1(const struct json *in,
         return ovsdb_syntax_error(new_json, NULL,
                                   "\"new\" <row> is not object");
     } else if ((old_json != NULL) + (new_json != NULL)
-               != shash_count(json_object(in))) {
+               != jsmap_count(json_object(in))) {
         return ovsdb_syntax_error(in, NULL,
                                   "<row-update> contains "
                                   "unexpected member");
@@ -2202,13 +2202,13 @@ ovsdb_cs_parse_row_update1(const struct json *in,
 
     if (!new_json) {
         out->type = OVSDB_CS_ROW_DELETE;
-        out->columns = json_object(old_json);
+        out->columns = old_json;
     } else if (!old_json) {
         out->type = OVSDB_CS_ROW_INSERT;
-        out->columns = json_object(new_json);
+        out->columns = new_json;
     } else {
         out->type = OVSDB_CS_ROW_UPDATE;
-        out->columns = json_object(new_json);
+        out->columns = new_json;
     }
     return NULL;
 }
@@ -2217,20 +2217,22 @@ static struct ovsdb_error * OVS_WARN_UNUSED_RESULT
 ovsdb_cs_parse_row_update2(const struct json *in,
                            struct ovsdb_cs_row_update *out)
 {
-    const struct shash *object = json_object(in);
-    if (shash_count(object) != 1) {
+    const struct jsmap *object = json_object(in);
+    if (jsmap_count(object) != 1) {
         return ovsdb_syntax_error(
             in, NULL, "<row-update2> has %"PRIuSIZE" members "
-            "instead of expected 1", shash_count(object));
+            "instead of expected 1", jsmap_count(object));
     }
 
-    struct shash_node *node = shash_first(object);
-    const struct json *columns = node->data;
-    if (!strcmp(node->name, "insert") || !strcmp(node->name, "initial")) {
+    struct jsmap_node *node = jsmap_first(object);
+    const struct json *columns = node->value;
+    const char *op = json_string(node->key);
+
+    if (!strcmp(op, "insert") || !strcmp(op, "initial")) {
         out->type = OVSDB_CS_ROW_INSERT;
-    } else if (!strcmp(node->name, "modify")) {
+    } else if (!strcmp(op, "modify")) {
         out->type = OVSDB_CS_ROW_XOR;
-    } else if (!strcmp(node->name, "delete")) {
+    } else if (!strcmp(op, "delete")) {
         out->type = OVSDB_CS_ROW_DELETE;
         if (columns->type != JSON_NULL) {
             return ovsdb_syntax_error(
@@ -2241,16 +2243,16 @@ ovsdb_cs_parse_row_update2(const struct json *in,
     } else {
         return ovsdb_syntax_error(in, NULL,
                                   "<row-update2> has unknown member \"%s\"",
-                                  node->name);
+                                  op);
     }
 
     if (columns->type != JSON_OBJECT) {
         return ovsdb_syntax_error(
             in, NULL,
             "<row-update2> \"%s\" operation has unexpected value",
-            node->name);
+            op);
     }
-    out->columns = json_object(columns);
+    out->columns = columns;
 
     return NULL;
 }
@@ -2286,13 +2288,14 @@ ovsdb_cs_parse_table_update(const char *table_name,
             in, NULL, "<table-update%s> for table \"%s\" is not an object",
             suffix, table_name);
     }
-    struct shash *in_rows = json_object(in);
+    struct jsmap *in_rows = json_object(in);
 
-    out->row_updates = xmalloc(shash_count(in_rows) * sizeof *out->row_updates);
+    out->row_updates = xmalloc(
+                        jsmap_count(in_rows) * sizeof *out->row_updates);
 
-    const struct shash_node *node;
-    SHASH_FOR_EACH (node, in_rows) {
-        const char *row_uuid_string = node->name;
+    const struct jsmap_node *node;
+    JSMAP_FOR_EACH (node, in_rows) {
+        const char *row_uuid_string = json_string(node->key);
         struct uuid row_uuid;
         if (!uuid_from_string(&row_uuid, row_uuid_string)) {
             return ovsdb_syntax_error(
@@ -2302,7 +2305,7 @@ ovsdb_cs_parse_table_update(const char *table_name,
                 suffix, table_name, row_uuid_string);
         }
 
-        const struct json *in_ru = node->data;
+        const struct json *in_ru = node->value;
         struct ovsdb_cs_row_update *out_ru = &out->row_updates[out->n++];
         *out_ru = (struct ovsdb_cs_row_update) { .row_uuid = row_uuid };
 
@@ -2338,12 +2341,12 @@ ovsdb_cs_parse_db_update(const struct json *in, int version,
     }
 
     struct ovsdb_cs_db_update *out = xzalloc(sizeof *out);
-    out->table_updates = xmalloc(shash_count(json_object(in))
+    out->table_updates = xmalloc(jsmap_count(json_object(in))
                                  * sizeof *out->table_updates);
-    const struct shash_node *node;
-    SHASH_FOR_EACH (node, json_object(in)) {
-        const char *table_name = node->name;
-        const struct json *in_tu = node->data;
+    const struct jsmap_node *node;
+    JSMAP_FOR_EACH (node, json_object(in)) {
+        const char *table_name = json_string(node->key);
+        const struct json *in_tu = node->value;
 
         struct ovsdb_cs_table_update *out_tu = &out->table_updates[out->n++];
         *out_tu = (struct ovsdb_cs_table_update) { .table_name = table_name };

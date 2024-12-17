@@ -24,6 +24,7 @@
 #include "column.h"
 #include "file.h"
 #include "monitor.h"
+#include "openvswitch/jsmap.h"
 #include "openvswitch/json.h"
 #include "openvswitch/poll-loop.h"
 #include "ovs-thread.h"
@@ -231,8 +232,9 @@ ovsdb_schema_from_json(const struct json *json, struct ovsdb_schema **schemap)
 {
     struct ovsdb_schema *schema;
     const struct json *name, *tables, *version_json, *cksum;
+    struct shash_node *schema_node;
     struct ovsdb_error *error;
-    struct shash_node *node;
+    struct jsmap_node *node;
     struct ovsdb_parser parser;
     const char *version;
 
@@ -262,17 +264,18 @@ ovsdb_schema_from_json(const struct json *json, struct ovsdb_schema **schemap)
 
     schema = ovsdb_schema_create(json_string(name), version,
                                  cksum ? json_string(cksum) : "");
-    SHASH_FOR_EACH (node, json_object(tables)) {
+    JSMAP_FOR_EACH (node, json_object(tables)) {
+        const char *table_name = json_string(node->key);
         struct ovsdb_table_schema *table;
 
-        if (node->name[0] == '_') {
+        if (table_name[0] == '_') {
             error = ovsdb_syntax_error(json, NULL, "names beginning with "
                                        "\"_\" are reserved");
-        } else if (!ovsdb_parser_is_id(node->name)) {
+        } else if (!ovsdb_parser_is_id(table_name)) {
             error = ovsdb_syntax_error(json, NULL, "name must be a valid id");
         } else {
-            error = ovsdb_table_schema_from_json(node->data, node->name,
-                                                 &table);
+            error = ovsdb_table_schema_from_json(node->value,
+                                                 table_name, &table);
         }
         if (error) {
             ovsdb_schema_destroy(schema);
@@ -287,8 +290,8 @@ ovsdb_schema_from_json(const struct json *json, struct ovsdb_schema **schemap)
      * compatibility, if the root set is empty then assume that every table is
      * in the root set. */
     if (root_set_size(schema) == 0) {
-        SHASH_FOR_EACH (node, &schema->tables) {
-            struct ovsdb_table_schema *table = node->data;
+        SHASH_FOR_EACH (schema_node, &schema->tables) {
+            struct ovsdb_table_schema *table = schema_node->data;
 
             table->is_root = true;
         }
@@ -299,8 +302,8 @@ ovsdb_schema_from_json(const struct json *json, struct ovsdb_schema **schemap)
      * Also force certain columns to be persistent, as explained in
      * ovsdb_schema_check_ref_table().  This requires 'is_root' to be known, so
      * this must follow the loop updating 'is_root' above. */
-    SHASH_FOR_EACH (node, &schema->tables) {
-        struct ovsdb_table_schema *table = node->data;
+    SHASH_FOR_EACH (schema_node, &schema->tables) {
+        struct ovsdb_table_schema *table = schema_node->data;
         struct shash_node *node2;
 
         SHASH_FOR_EACH (node2, &table->columns) {

@@ -23,6 +23,7 @@
 #include "byteq.h"
 #include "openvswitch/dynamic-string.h"
 #include "fatal-signal.h"
+#include "openvswitch/jsmap.h"
 #include "openvswitch/json.h"
 #include "openvswitch/list.h"
 #include "openvswitch/ofpbuf.h"
@@ -713,16 +714,14 @@ jsonrpc_msg_from_json(struct json *json, struct jsonrpc_msg **msgp)
 {
     struct json *method = NULL;
     struct jsonrpc_msg *msg = NULL;
-    struct shash *object;
     char *error;
 
     if (json->type != JSON_OBJECT) {
         error = xstrdup("message is not a JSON object");
         goto exit;
     }
-    object = json_object(json);
 
-    method = shash_find_and_delete(object, "method");
+    method = json_object_find_and_delete(json, "method");
     if (method && method->type != JSON_STRING) {
         error = xstrdup("method is not a JSON string");
         goto exit;
@@ -730,17 +729,21 @@ jsonrpc_msg_from_json(struct json *json, struct jsonrpc_msg **msgp)
 
     msg = xzalloc(sizeof *msg);
     msg->method = method ? xstrdup(json_string(method)) : NULL;
-    msg->params = null_from_json_null(shash_find_and_delete(object, "params"));
-    msg->result = null_from_json_null(shash_find_and_delete(object, "result"));
-    msg->error = null_from_json_null(shash_find_and_delete(object, "error"));
-    msg->id = null_from_json_null(shash_find_and_delete(object, "id"));
+    msg->params = null_from_json_null(
+                    json_object_find_and_delete(json, "params"));
+    msg->result = null_from_json_null(
+                    json_object_find_and_delete(json, "result"));
+    msg->error = null_from_json_null(
+                    json_object_find_and_delete(json, "error"));
+    msg->id = null_from_json_null(
+                    json_object_find_and_delete(json, "id"));
     msg->type = (msg->result ? JSONRPC_REPLY
                  : msg->error ? JSONRPC_ERROR
                  : msg->id ? JSONRPC_REQUEST
                  : JSONRPC_NOTIFY);
-    if (!shash_is_empty(object)) {
+    if (!jsmap_is_empty(json_object(json))) {
         error = xasprintf("message has unexpected member \"%s\"",
-                          shash_first(object)->name);
+                          json_string(jsmap_first(json_object(json))->key));
         goto exit;
     }
     error = jsonrpc_msg_is_valid(msg);

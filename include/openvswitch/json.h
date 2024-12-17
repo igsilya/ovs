@@ -31,7 +31,6 @@
  */
 
 #include <stdio.h>
-#include "openvswitch/shash.h"
 #include "openvswitch/util.h"
 
 #ifdef  __cplusplus
@@ -40,6 +39,7 @@ extern "C" {
 
 struct ds;
 struct uuid;
+struct jsmap;
 
 /* Type of a JSON value. */
 enum json_type {
@@ -88,7 +88,7 @@ struct json {
     enum json_storage_type storage_type;
     size_t count;
     union {
-        struct shash *object;   /* Contains "struct json *"s. */
+        struct jsmap *object;   /* Contains "struct json *"s. */
         union {
             struct json *elements[JSON_ARRAY_INLINE_LEN];
             struct json_array array;
@@ -129,12 +129,14 @@ void json_object_put_string(struct json *,
 void json_object_put_format(struct json *,
                             const char *name, const char *format, ...)
     OVS_PRINTF_FORMAT(3, 4);
+struct json *json_object_find(const struct json *json, const char *);
+struct json *json_object_find_and_delete(struct json *json, const char *);
 
 const char *json_string(const struct json *);
 const char *json_serialized_object(const struct json *);
 size_t json_array_size(const struct json *);
 const struct json *json_array_at(const struct json *, size_t index);
-struct shash *json_object(const struct json *);
+struct jsmap *json_object(const struct json *);
 bool json_boolean(const struct json *);
 double json_real(const struct json *);
 int64_t json_integer(const struct json *);

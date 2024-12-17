@@ -181,7 +181,7 @@ enum ovsdb_cs_row_update_type {
 struct ovsdb_cs_row_update {
     struct uuid row_uuid;       /* Row's _uuid. */
     enum ovsdb_cs_row_update_type type; /* Type of change. */
-    const struct shash *columns; /* Map from column name to json data. */
+    const struct json *columns; /* Map (object) from column name to data. */
 };
 
 /* Partially parsed <table-update> or <table-update2>. */

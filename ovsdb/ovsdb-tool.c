@@ -33,6 +33,7 @@
 #include "lockfile.h"
 #include "log.h"
 #include "openvswitch/hmap.h"
+#include "openvswitch/jsmap.h"
 #include "openvswitch/json.h"
 #include "ovsdb.h"
 #include "ovsdb-data.h"
@@ -663,21 +664,21 @@ do_transact(struct ovs_cmdl_context *ctx)
 }
 
 static void
-print_db_changes(struct shash *tables, struct smap *names,
+print_db_changes(const struct json *tables, struct smap *names,
                  const struct ovsdb_schema *schema)
 {
-    struct json *is_diff = shash_find_data(tables, "_is_diff");
+    const struct json *is_diff = json_object_find(tables, "_is_diff");
     bool diff = (is_diff && is_diff->type == JSON_TRUE);
-    struct shash_node *n1;
+    struct jsmap_node *n1;
 
     int i = 0;
-    SHASH_FOR_EACH (n1, tables) {
-        const char *table = n1->name;
+    JSMAP_FOR_EACH (n1, json_object(tables)) {
+        const char *table = json_string(n1->key);
         struct ovsdb_table_schema *table_schema;
-        struct json *rows = n1->data;
-        struct shash_node *n2;
+        const struct json *rows = n1->value;
+        struct jsmap_node *n2;
 
-        if (n1->name[0] == '_' || rows->type != JSON_OBJECT) {
+        if (table[0] == '_' || rows->type != JSON_OBJECT) {
             continue;
         }
 
@@ -686,17 +687,17 @@ print_db_changes(struct shash *tables, struct smap *names,
         }
 
         table_schema = schema ? shash_find_data(&schema->tables, table) : NULL;
-        SHASH_FOR_EACH (n2, json_object(rows)) {
-            const char *row_uuid = n2->name;
-            struct json *columns = n2->data;
-            struct shash_node *n3;
+        JSMAP_FOR_EACH (n2, json_object(rows)) {
+            const char *row_uuid = json_string(n2->key);
+            const struct json *columns = n2->value;
+            struct jsmap_node *n3;
 
             const char *old_name = smap_get(names, row_uuid);
             char *new_name = NULL;
             if (columns->type == JSON_OBJECT) {
                 struct json *new_name_json;
 
-                new_name_json = shash_find_data(json_object(columns), "name");
+                new_name_json = json_object_find(columns, "name");
                 if (new_name_json) {
                     new_name = json_to_string(new_name_json, JSSF_SORT);
                 }
@@ -717,10 +718,10 @@ print_db_changes(struct shash *tables, struct smap *names,
 
             if (columns->type == JSON_OBJECT) {
                 if (show_log_verbosity > 1) {
-                    SHASH_FOR_EACH (n3, json_object(columns)) {
-                        const char *column = n3->name;
+                    JSMAP_FOR_EACH (n3, json_object(columns)) {
+                        const char *column = json_string(n3->key);
                         const struct ovsdb_column *column_schema;
-                        struct json *value = n3->data;
+                        const struct json *value = n3->value;
                         char *value_string = NULL;
 
                         column_schema =
@@ -781,7 +782,7 @@ print_change_record(const struct json *json, const struct ovsdb_schema *schema,
 
     struct json *date, *comment;
 
-    date = shash_find_data(json_object(json), "_date");
+    date = json_object_find(json, "_date");
     if (date && date->type == JSON_INTEGER) {
         long long int t = json_integer(date);
         char *s;
@@ -796,13 +797,13 @@ print_change_record(const struct json *json, const struct ovsdb_schema *schema,
         free(s);
     }
 
-    comment = shash_find_data(json_object(json), "_comment");
+    comment = json_object_find(json, "_comment");
     if (comment && comment->type == JSON_STRING) {
         printf(" \"%s\"", json_string(comment));
     }
 
     if (show_log_verbosity > 0) {
-        print_db_changes(json_object(json), names, schema);
+        print_db_changes(json, names, schema);
     }
 }
 
@@ -845,17 +846,17 @@ print_servers(const char *name, const struct json *servers)
 
     printf(" %s: ", name);
 
-    const struct shash_node **nodes = shash_sort(json_object(servers));
-    size_t n = shash_count(json_object(servers));
+    const struct jsmap_node **nodes = jsmap_sort(json_object(servers));
+    size_t n = jsmap_count(json_object(servers));
     for (size_t i = 0; i < n; i++) {
         if (i > 0) {
             printf(", ");
         }
 
-        const struct shash_node *node = nodes[i];
-        printf("%.4s(", node->name);
+        const struct jsmap_node *node = nodes[i];
+        printf("%.4s(", json_string(node->key));
 
-        const struct json *address = node->data;
+        const struct json *address = node->value;
         char *s = json_to_string(address, JSSF_SORT);
         fputs(s, stdout);
         free(s);
@@ -1566,13 +1567,12 @@ do_check_cluster(struct ovs_cmdl_context *ctx)
      */
 
     for (struct server *s = c.servers; s < &c.servers[c.n_servers]; s++) {
-        struct shash *servers_obj = json_object(s->snap->servers);
         char *server_id = xasprintf(SID_FMT, SID_ARGS(&s->header.sid));
         bool found = false;
-        const struct shash_node *node;
+        const struct jsmap_node *node;
 
-        SHASH_FOR_EACH (node, servers_obj) {
-            if (!strncmp(server_id, node->name, SID_LEN)) {
+        JSMAP_FOR_EACH (node, json_object(s->snap->servers)) {
+            if (!strncmp(server_id, json_string(node->key), SID_LEN)) {
                 found = true;
             }
         }
@@ -1583,9 +1583,8 @@ do_check_cluster(struct ovs_cmdl_context *ctx)
                 if (e->servers == NULL) {
                     continue;
                 }
-                struct shash *log_servers_obj = json_object(e->servers);
-                SHASH_FOR_EACH (node, log_servers_obj) {
-                    if (!strncmp(server_id, node->name, SID_LEN)) {
+                JSMAP_FOR_EACH (node, json_object(e->servers)) {
+                    if (!strncmp(server_id, json_string(node->key), SID_LEN)) {
                         found = true;
                     }
                 }

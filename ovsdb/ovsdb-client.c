@@ -34,6 +34,7 @@
 #include "openvswitch/dynamic-string.h"
 #include "fatal-signal.h"
 #include "file.h"
+#include "openvswitch/jsmap.h"
 #include "openvswitch/json.h"
 #include "jsonrpc.h"
 #include "lib/table.h"
@@ -606,14 +607,14 @@ fetch_dbs(struct jsonrpc *rpc, struct svec *dbs)
 static const char *
 parse_string_column(const struct json *row, const char *column_name)
 {
-    const struct json *column = shash_find_data(json_object(row), column_name);
+    const struct json *column = json_object_find(row, column_name);
     return column && column->type == JSON_STRING ? json_string(column) : "";
 }
 
 static int
 parse_boolean_column(const struct json *row, const char *column_name)
 {
-    const struct json *column = shash_find_data(json_object(row), column_name);
+    const struct json *column = json_object_find(row, column_name);
     return (!column ? -1
             : column->type == JSON_TRUE ? true
             : column->type == JSON_FALSE ? false
@@ -623,7 +624,7 @@ parse_boolean_column(const struct json *row, const char *column_name)
 static struct uuid
 parse_uuid_column(const struct json *row, const char *column_name)
 {
-    const struct json *column = shash_find_data(json_object(row), column_name);
+    const struct json *column = json_object_find(row, column_name);
     if (!column) {
         return UUID_ZERO;
     }
@@ -672,7 +673,7 @@ parse_database_info_reply(const struct jsonrpc_msg *reply, const char *server,
     }
 
     const struct json *op_result = json_array_at(result, 0);
-    const struct json *rows = shash_find_data(json_object(op_result), "rows");
+    const struct json *rows = json_object_find(op_result, "rows");
     if (!rows || rows->type != JSON_ARRAY) {
         VLOG_WARN("%s: missing \"rows\" member in  _Server reply for %s",
                   server, database);
@@ -927,7 +928,7 @@ do_query(struct jsonrpc *rpc OVS_UNUSED, const char *database OVS_UNUSED,
         && json_array_size(result) == abort_idx + 1
         && json_array_at(result, abort_idx)->type == JSON_OBJECT) {
         const struct json *op_result = json_array_at(result, abort_idx);
-        struct json *error = shash_find_data(json_object(op_result), "error");
+        struct json *error = json_object_find(op_result, "error");
         if (error
             && error->type == JSON_STRING
             && !strcmp(json_string(error), "aborted")) {
@@ -965,7 +966,7 @@ monitor_print_row(const struct json *row, const char *type, const char *uuid,
     table_add_cell(t)->text = xstrdup(type);
     for (i = 0; i < columns->n_columns; i++) {
         const struct ovsdb_column *column = columns->columns[i];
-        struct json *value = shash_find_data(json_object(row), column->name);
+        struct json *value = json_object_find(row, column->name);
         struct cell *cell = table_add_cell(t);
         if (value) {
             cell->json = json_clone(value);
@@ -981,7 +982,7 @@ monitor_print_table(struct json *table_update,
 {
     const struct ovsdb_table_schema *table = mt->table;
     const struct ovsdb_column_set *columns = &mt->columns;
-    struct shash_node *node;
+    struct jsmap_node *node;
     struct table t;
     size_t i;
 
@@ -999,24 +1000,25 @@ monitor_print_table(struct json *table_update,
     for (i = 0; i < columns->n_columns; i++) {
         table_add_column(&t, "%s", columns->columns[i]->name);
     }
-    SHASH_FOR_EACH (node, json_object(table_update)) {
-        struct json *row_update = node->data;
+    JSMAP_FOR_EACH (node, json_object(table_update)) {
+        const char *name = json_string(node->key);
+        struct json *row_update = node->value;
         struct json *old, *new;
 
         if (row_update->type != JSON_OBJECT) {
             ovs_error(0, "<row-update> is not object");
             continue;
         }
-        old = shash_find_data(json_object(row_update), "old");
-        new = shash_find_data(json_object(row_update), "new");
+        old = json_object_find(row_update, "old");
+        new = json_object_find(row_update, "new");
         if (initial) {
-            monitor_print_row(new, "initial", node->name, columns, &t);
+            monitor_print_row(new, "initial", name, columns, &t);
         } else if (!old) {
-            monitor_print_row(new, "insert", node->name, columns, &t);
+            monitor_print_row(new, "insert", name, columns, &t);
         } else if (!new) {
-            monitor_print_row(old, "delete", node->name, columns, &t);
+            monitor_print_row(old, "delete", name, columns, &t);
         } else {
-            monitor_print_row(old, "old", node->name, columns, &t);
+            monitor_print_row(old, "old", name, columns, &t);
             monitor_print_row(new, "new", "", columns, &t);
         }
     }
@@ -1038,8 +1040,8 @@ monitor_print(const struct json *table_updates,
 
     for (i = 0; i < n_mts; i++) {
         const struct monitored_table *mt = &mts[i];
-        struct json *table_update = shash_find_data(json_object(table_updates),
-                                                    mt->table->name);
+        struct json *table_update = json_object_find(table_updates,
+                                                     mt->table->name);
         if (table_update) {
             monitor_print_table(table_update, mt,
                                 n_mts > 1 ? xstrdup(mt->table->name) : NULL,
@@ -1076,7 +1078,7 @@ monitor2_print_table(const struct json *table_update2,
 {
     const struct ovsdb_table_schema *table = mt->table;
     const struct ovsdb_column_set *columns = &mt->columns;
-    struct shash_node *node;
+    struct jsmap_node *node;
     struct table t;
 
     if (table_update2->type != JSON_OBJECT) {
@@ -1093,8 +1095,8 @@ monitor2_print_table(const struct json *table_update2,
     for (size_t i = 0; i < columns->n_columns; i++) {
         table_add_column(&t, "%s", columns->columns[i]->name);
     }
-    SHASH_FOR_EACH (node, json_object(table_update2)) {
-        struct json *row_update2 = node->data;
+    JSMAP_FOR_EACH (node, json_object(table_update2)) {
+        struct json *row_update2 = node->value;
         const char *operation;
         struct json *row;
         const char *ops[] = {"delete", "initial", "modify", "insert"};
@@ -1107,10 +1109,11 @@ monitor2_print_table(const struct json *table_update2,
         /* row_update2 contains one of objects indexed by ops[] */
         for (int i = 0; i < ARRAY_SIZE(ops); i++) {
             operation = ops[i];
-            row = shash_find_data(json_object(row_update2), operation);
+            row = json_object_find(row_update2, operation);
 
             if (row) {
-                monitor2_print_row(row, operation, node->name, columns, &t);
+                monitor2_print_row(row, operation, json_string(node->key),
+                                   columns, &t);
                 break;
             }
         }
@@ -1132,9 +1135,8 @@ monitor2_print(const struct json *table_updates2,
 
     for (i = 0; i < n_mts; i++) {
         const struct monitored_table *mt = &mts[i];
-        struct json *table_update = shash_find_data(
-                                        json_object(table_updates2),
-                                        mt->table->name);
+        struct json *table_update = json_object_find(table_updates2,
+                                                     mt->table->name);
         if (table_update) {
             monitor2_print_table(table_update, mt,
                                 n_mts > 1 ? xstrdup(mt->table->name) : NULL);
@@ -1790,17 +1792,15 @@ dump_table(const char *table_name, const struct shash *cols,
     data = xmalloc(n * sizeof *data);
     for (y = 0; y < n; y++) {
         const struct json *elem = json_array_at(rows, y);
-        struct shash *row;
 
         if (elem->type != JSON_OBJECT) {
             ovs_fatal(0,  "row %"PRIuSIZE" in table %s response is not a JSON object: "
                       "%s", y, table_name, json_to_string(elem, 0));
         }
-        row = json_object(elem);
 
         data[y] = xmalloc(n_columns * sizeof **data);
         for (x = 0; x < n_columns; x++) {
-            const struct json *json = shash_find_data(row, columns[x]->name);
+            const struct json *json = json_object_find(elem, columns[x]->name);
             if (!json) {
                 ovs_fatal(0, "row %"PRIuSIZE" in table %s response lacks %s column",
                           y, table_name, columns[x]->name);
@@ -1926,7 +1926,7 @@ do_dump(struct jsonrpc *rpc, const char *database,
         struct json *rows;
 
         if (op_result->type != JSON_OBJECT
-            || !(rows = shash_find_data(json_object(op_result), "rows"))
+            || !(rows = json_object_find(op_result, "rows"))
             || rows->type != JSON_ARRAY) {
             ovs_fatal(0, "%s table reply is not an object with a \"rows\" "
                       "member array: %s",
@@ -2045,7 +2045,7 @@ do_backup(struct jsonrpc *rpc, const char *database,
         struct json *rows;
 
         if (op_result->type != JSON_OBJECT
-            || !(rows = shash_find_data(json_object(op_result), "rows"))
+            || !(rows = json_object_find(op_result, "rows"))
             || rows->type != JSON_ARRAY) {
             ovs_fatal(0, "%s table reply is not an object with a \"rows\" "
                       "member array: %s",
@@ -2065,8 +2065,8 @@ do_backup(struct jsonrpc *rpc, const char *database,
                           table_name, json_to_string(row, 0));
             }
 
-            struct json *uuid_json = shash_find_and_delete(json_object(row),
-                                                           "_uuid");
+            struct json *uuid_json = json_object_find_and_delete(
+                                      CONST_CAST(struct json *, row), "_uuid");
             if (!uuid_json) {
                 ovs_fatal(0, "%s table reply row lacks _uuid member: %s",
                           table_name, json_to_string(row, 0));
@@ -2103,8 +2103,7 @@ check_transaction_reply(struct jsonrpc_msg *reply)
         if (json->type != JSON_OBJECT) {
             ovs_fatal(0, "result array element is not object");
         }
-        struct shash *object = json_object(json);
-        if (shash_find(object, "error")) {
+        if (json_object_find(json, "error")) {
             ovs_fatal(0, "server returned error reply: %s",
                       json_to_string(json, JSSF_SORT));
         }

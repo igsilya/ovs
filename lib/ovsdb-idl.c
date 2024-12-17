@@ -39,6 +39,7 @@
 #include "ovsdb-parser.h"
 #include "ovsdb-server-idl.h"
 #include "ovsdb-session.h"
+#include "openvswitch/jsmap.h"
 #include "openvswitch/poll-loop.h"
 #include "openvswitch/shash.h"
 #include "skiplist.h"
@@ -145,10 +146,10 @@ static void ovsdb_idl_clear(struct ovsdb_idl *);
 static enum update_result ovsdb_idl_process_update(
     struct ovsdb_idl_table *, const struct ovsdb_cs_row_update *);
 static void ovsdb_idl_insert_row(struct ovsdb_idl_row *,
-                                 const struct shash *values);
+                                 const struct json *values);
 static void ovsdb_idl_delete_row(struct ovsdb_idl_row *);
 static bool ovsdb_idl_modify_row(struct ovsdb_idl_row *,
-                                 const struct shash *values, bool xor);
+                                 const struct json *values, bool xor);
 static void ovsdb_idl_parse_update(struct ovsdb_idl *,
                                    const struct ovsdb_cs_update_event *);
 static void ovsdb_idl_reparse_deleted(struct ovsdb_idl *);
@@ -1699,16 +1700,16 @@ add_tracked_change_for_references(struct ovsdb_idl_row *row)
  * Caller needs to provide either valid 'row_json' or 'diff', but not
  * both.  */
 static bool
-ovsdb_idl_row_change(struct ovsdb_idl_row *row, const struct shash *values,
+ovsdb_idl_row_change(struct ovsdb_idl_row *row, const struct json *values,
                      bool xor, enum ovsdb_idl_change change)
 {
     struct ovsdb_idl_table *table = row->table;
     const struct ovsdb_idl_table_class *class = table->class_;
-    struct shash_node *node;
+    struct jsmap_node *node;
     bool changed = false;
 
-    SHASH_FOR_EACH (node, values) {
-        const char *column_name = node->name;
+    JSMAP_FOR_EACH (node, json_object(values)) {
+        const char *column_name = json_string(node->key);
         const struct ovsdb_idl_column *column;
         struct ovsdb_error *error;
         unsigned int column_idx;
@@ -1729,7 +1730,7 @@ ovsdb_idl_row_change(struct ovsdb_idl_row *row, const struct shash *values,
             struct ovsdb_datum diff;
 
             error = ovsdb_transient_datum_from_json(&diff, &column->type,
-                                                    node->data);
+                                                    node->value);
             if (!error) {
                 error = ovsdb_datum_apply_diff_in_place(old, &diff,
                                                         &column->type);
@@ -1739,7 +1740,7 @@ ovsdb_idl_row_change(struct ovsdb_idl_row *row, const struct shash *values,
         } else {
             struct ovsdb_datum datum;
 
-            error = ovsdb_datum_from_json(&datum, &column->type, node->data,
+            error = ovsdb_datum_from_json(&datum, &column->type, node->value,
                                           NULL);
             if (!error) {
                 if (!ovsdb_datum_equals(old, &datum, &column->type)) {
@@ -2412,7 +2413,7 @@ ovsdb_idl_row_destroy_postprocess(struct ovsdb_idl *idl)
 }
 
 static void
-ovsdb_idl_insert_row(struct ovsdb_idl_row *row, const struct shash *data)
+ovsdb_idl_insert_row(struct ovsdb_idl_row *row, const struct json *data)
 {
     const struct ovsdb_idl_table_class *class = row->table->class_;
     size_t i, datum_size;
@@ -2448,7 +2449,7 @@ ovsdb_idl_delete_row(struct ovsdb_idl_row *row)
 /* Returns true if a column with mode OVSDB_IDL_MODE_RW changed, false
  * otherwise. */
 static bool
-ovsdb_idl_modify_row(struct ovsdb_idl_row *row, const struct shash *values,
+ovsdb_idl_modify_row(struct ovsdb_idl_row *row, const struct json *values,
                      bool xor)
 {
     ovsdb_idl_remove_from_indexes(row);
@@ -2890,10 +2891,10 @@ substitute_uuids(struct json *json, const struct ovsdb_idl_txn *txn)
                     CONST_CAST(struct json *, json_array_at(json, i)), txn));
         }
     } else if (json->type == JSON_OBJECT) {
-        struct shash_node *node;
+        struct jsmap_node *node;
 
-        SHASH_FOR_EACH (node, json_object(json)) {
-            node->data = substitute_uuids(node->data, txn);
+        JSMAP_FOR_EACH (node, json_object(json)) {
+            node->value = substitute_uuids(node->value, txn);
         }
     }
     return json;
@@ -3359,7 +3360,7 @@ ovsdb_idl_txn_commit(struct ovsdb_idl_txn *txn)
                 }
             }
 
-            if (!row->old_datum || !shash_is_empty(json_object(row_json))) {
+            if (!row->old_datum || !jsmap_is_empty(json_object(row_json))) {
                 json_array_add(operations, op);
             } else {
                 json_destroy(op);
@@ -3910,7 +3911,7 @@ ovsdb_idl_txn_process_inc_reply(struct ovsdb_idl_txn *txn,
                                 const struct json *results)
 {
     const struct json *count, *rows, *row, *column;
-    struct shash *mutate, *select;
+    const struct json *mutate, *select;
 
     if (txn->inc_index + 2 > json_array_size(results)) {
         VLOG_WARN_RL(&syntax_rl, "reply does not contain enough operations "
@@ -3921,8 +3922,8 @@ ovsdb_idl_txn_process_inc_reply(struct ovsdb_idl_txn *txn,
 
     /* We know that this is a JSON object because the loop in
      * ovsdb_idl_txn_process_reply() checked. */
-    mutate = json_object(json_array_at(results, txn->inc_index));
-    count = shash_find_data(mutate, "count");
+    mutate = json_array_at(results, txn->inc_index);
+    count = json_object_find(mutate, "count");
     if (!check_json_type(count, JSON_INTEGER, "\"mutate\" reply \"count\"")) {
         return false;
     }
@@ -3933,8 +3934,8 @@ ovsdb_idl_txn_process_inc_reply(struct ovsdb_idl_txn *txn,
         return false;
     }
 
-    select = json_object(json_array_at(results, txn->inc_index + 1));
-    rows = shash_find_data(select, "rows");
+    select = json_array_at(results, txn->inc_index + 1);
+    rows = json_object_find(select, "rows");
     if (!check_json_type(rows, JSON_ARRAY, "\"select\" reply \"rows\"")) {
         return false;
     }
@@ -3948,7 +3949,7 @@ ovsdb_idl_txn_process_inc_reply(struct ovsdb_idl_txn *txn,
     if (!check_json_type(row, JSON_OBJECT, "\"select\" reply row")) {
         return false;
     }
-    column = shash_find_data(json_object(row), txn->inc_column);
+    column = json_object_find(row, txn->inc_column);
     if (!check_json_type(column, JSON_INTEGER,
                          "\"select\" reply inc column")) {
         return false;
@@ -3963,9 +3964,9 @@ ovsdb_idl_txn_process_insert_reply(struct ovsdb_idl_txn_insert *insert,
 {
     static const struct ovsdb_base_type uuid_type = OVSDB_BASE_UUID_INIT;
     struct ovsdb_error *error;
+    const struct json *reply;
     struct json *json_uuid;
     union ovsdb_atom uuid;
-    struct shash *reply;
 
     if (insert->op_index >= json_array_size(results)) {
         VLOG_WARN_RL(&syntax_rl, "reply does not contain enough operations "
@@ -3976,8 +3977,8 @@ ovsdb_idl_txn_process_insert_reply(struct ovsdb_idl_txn_insert *insert,
 
     /* We know that this is a JSON object because the loop in
      * ovsdb_idl_txn_process_reply() checked. */
-    reply = json_object(json_array_at(results, insert->op_index));
-    json_uuid = shash_find_data(reply, "uuid");
+    reply = json_array_at(results, insert->op_index);
+    json_uuid = json_object_find(reply, "uuid");
     if (!check_json_type(json_uuid, JSON_ARRAY, "\"insert\" reply \"uuid\"")) {
         return false;
     }
@@ -4038,9 +4039,9 @@ ovsdb_idl_txn_process_reply(struct ovsdb_idl *idl,
                  * operation failed, so make sure that we know about it. */
                 soft_errors++;
             } else if (op->type == JSON_OBJECT) {
-                struct json *error;
+                const struct json *error;
 
-                error = shash_find_data(json_object(op), "error");
+                error = json_object_find(op, "error");
                 if (error) {
                     if (error->type == JSON_STRING) {
                         const char *error_string = json_string(error);

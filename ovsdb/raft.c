@@ -519,9 +519,9 @@ raft_create_cluster(const char *file_name, const char *name,
         },
     };
     raft_entry_set_parsed_data(&h.snap, data);
-    shash_add_nocopy(json_object(h.snap.servers),
-                     xasprintf(UUID_FMT, UUID_ARGS(&h.sid)),
-                     json_string_create(local_address));
+    json_object_put_nocopy(h.snap.servers,
+                           xasprintf(UUID_FMT, UUID_ARGS(&h.sid)),
+                           json_string_create(local_address));
     error = ovsdb_log_write_and_free(log, raft_header_to_json(&h));
     raft_header_uninit(&h);
     if (error) {

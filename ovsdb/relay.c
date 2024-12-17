@@ -198,15 +198,9 @@ ovsdb_relay_process_row_update(struct ovsdb_table *table,
                                const struct ovsdb_cs_row_update *ru,
                                struct ovsdb_txn *txn)
 {
+    const struct json *json_row = ru->columns;
     const struct uuid *uuid = &ru->row_uuid;
-    struct ovsdb_error * error = NULL;
-
-    /* XXX: ovsdb-cs module returns shash which was previously part of a json
-     *      structure and we need json row format in order to use ovsdb_row*
-     *      functions.  Creating a json object out of shash. */
-    struct json *json_row = json_object_create();
-    struct shash *obj = json_row->object;
-    json_row->object = CONST_CAST(struct shash *, ru->columns);
+    struct ovsdb_error *error = NULL;
 
     switch (ru->type) {
     case OVSDB_CS_ROW_DELETE:
@@ -228,9 +222,6 @@ ovsdb_relay_process_row_update(struct ovsdb_table *table,
     default:
         OVS_NOT_REACHED();
     }
-
-    json_row->object = obj;
-    json_destroy(json_row);
 
     return error;
 }

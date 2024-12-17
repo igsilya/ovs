@@ -18,6 +18,7 @@
 #include <strings.h>
 
 #include "hash.h"
+#include "openvswitch/jsmap.h"
 #include "openvswitch/json.h"
 #include "packets.h"
 #include "util.h"
@@ -354,11 +355,10 @@ smap_sort(const struct smap *smap)
 void
 smap_from_json(struct smap *smap, const struct json *json)
 {
-    const struct shash_node *node;
+    const struct jsmap_node *node;
 
-    SHASH_FOR_EACH (node, json_object(json)) {
-        const struct json *value = node->data;
-        smap_add(smap, node->name, json_string(value));
+    JSMAP_FOR_EACH (node, json_object(json)) {
+        smap_add(smap, json_string(node->key), json_string(node->value));
     }
 }
 

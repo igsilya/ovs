@@ -25,6 +25,7 @@
 #include "column.h"
 #include "cooperative-multitasking.h"
 #include "log.h"
+#include "openvswitch/jsmap.h"
 #include "openvswitch/json.h"
 #include "lockfile.h"
 #include "ovsdb.h"
@@ -87,14 +88,14 @@ ovsdb_file_update_row_from_json(struct ovsdb_row *row, struct ovsdb_row *diff,
 {
     struct ovsdb_table_schema *schema = row->table->schema;
     struct ovsdb_error *error;
-    struct shash_node *node;
+    struct jsmap_node *node;
 
     if (json->type != JSON_OBJECT) {
         return ovsdb_syntax_error(json, NULL, "row must be JSON object");
     }
 
-    SHASH_FOR_EACH (node, json_object(json)) {
-        const char *column_name = node->name;
+    JSMAP_FOR_EACH (node, json_object(json)) {
+        const char *column_name = json_string(node->key);
         const struct ovsdb_column *column;
         struct ovsdb_datum datum;
 
@@ -111,10 +112,10 @@ ovsdb_file_update_row_from_json(struct ovsdb_row *row, struct ovsdb_row *diff,
         if (row_contains_diff) {
             /* Diff may violate the type size rules. */
             error = ovsdb_transient_datum_from_json(&datum, &column->type,
-                                                    node->data);
+                                                    node->value);
         } else {
             error = ovsdb_datum_from_json(&datum, &column->type,
-                                          node->data, NULL);
+                                          node->value, NULL);
         }
         if (error) {
             return error;
@@ -145,7 +146,8 @@ ovsdb_file_update_row_from_json(struct ovsdb_row *row, struct ovsdb_row *diff,
 static struct ovsdb_error *
 ovsdb_file_txn_row_from_json(struct ovsdb_txn *txn, struct ovsdb_table *table,
                              bool converting, bool row_contains_diff,
-                             const struct uuid *row_uuid, struct json *json)
+                             const struct uuid *row_uuid,
+                             const struct json *json)
 {
     const struct ovsdb_row *row = ovsdb_table_get_row(table, row_uuid);
     if (json->type == JSON_NULL) {
@@ -185,17 +187,17 @@ ovsdb_file_txn_table_from_json(struct ovsdb_txn *txn,
                                struct ovsdb_table *table,
                                bool converting,
                                bool row_contains_diff,
-                               struct json *json)
+                               const struct json *json)
 {
-    struct shash_node *node;
+    struct jsmap_node *node;
 
     if (json->type != JSON_OBJECT) {
         return ovsdb_syntax_error(json, NULL, "object expected");
     }
 
-    SHASH_FOR_EACH (node, json->object) {
-        const char *uuid_string = node->name;
-        struct json *txn_row_json = node->data;
+    JSMAP_FOR_EACH (node, json_object(json)) {
+        const char *uuid_string = json_string(node->key);
+        const struct json *txn_row_json = node->value;
         struct ovsdb_error *error;
         struct uuid row_uuid;
 
@@ -226,7 +228,7 @@ ovsdb_file_txn_from_json(struct ovsdb *db, const struct json *json,
                          bool converting, struct ovsdb_txn **txnp)
 {
     struct ovsdb_error *error;
-    struct shash_node *node;
+    struct jsmap_node *node;
     struct ovsdb_txn *txn;
 
     *txnp = NULL;
@@ -235,7 +237,7 @@ ovsdb_file_txn_from_json(struct ovsdb *db, const struct json *json,
         return ovsdb_syntax_error(json, NULL, "object expected");
     }
 
-    struct json *is_diff = shash_find_data(json->object, "_is_diff");
+    const struct json *is_diff = json_object_find(json, "_is_diff");
     bool row_contains_diff = false;
 
     if (is_diff && is_diff->type == JSON_TRUE) {
@@ -243,9 +245,9 @@ ovsdb_file_txn_from_json(struct ovsdb *db, const struct json *json,
     }
 
     txn = ovsdb_txn_create(db);
-    SHASH_FOR_EACH (node, json->object) {
-        const char *table_name = node->name;
-        struct json *node_json = node->data;
+    JSMAP_FOR_EACH (node, json_object(json)) {
+        const char *table_name = json_string(node->key);
+        const struct json *node_json = node->value;
         struct ovsdb_table *table;
 
         table = shash_find_data(&db->tables, table_name);

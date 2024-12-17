@@ -79,13 +79,14 @@ const struct ovsdb_row *ovsdb_table_get_row(const struct ovsdb_table *,
 struct ovsdb_error *ovsdb_table_execute_insert(struct ovsdb_txn *txn,
                                                const struct uuid *row_uuid,
                                                struct ovsdb_table *table,
-                                               struct json *new);
+                                               const struct json *new);
 struct ovsdb_error *ovsdb_table_execute_delete(struct ovsdb_txn *txn,
                                                const struct uuid *row_uuid,
                                                struct ovsdb_table *table);
 struct ovsdb_error *ovsdb_table_execute_update(struct ovsdb_txn *txn,
                                                const struct uuid *row_uuid,
                                                struct ovsdb_table *table,
-                                               struct json *new, bool xor);
+                                               const struct json *new,
+                                               bool xor);
 
 #endif /* ovsdb/table.h */

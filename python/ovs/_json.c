@@ -1,4 +1,5 @@
 #include "Python.h"
+#include <openvswitch/jsmap.h>
 #include <openvswitch/json.h>
 #include "structmember.h"
 
@@ -88,15 +89,15 @@ json_to_python(struct json *json)
     case JSON_TRUE:
         Py_RETURN_TRUE;
     case JSON_OBJECT:{
-            struct shash_node *node;
+            struct jsmap_node *node;
             PyObject *dict = PyDict_New();
 
             if (dict == NULL) {
                 return PyErr_NoMemory();
             }
-            SHASH_FOR_EACH (node, json->object) {
-                PyObject *key = PyUnicode_FromString(node->name);
-                PyObject *val = json_to_python(node->data);
+            JSMAP_FOR_EACH (node, json->object) {
+                PyObject *key = PyUnicode_FromString(json_string(node->key));
+                PyObject *val = json_to_python(node->value);
 
                 if (!(key && val) || PyDict_SetItem(dict, key, val)) {
                     Py_XDECREF(key);

@@ -22,6 +22,7 @@
 #include "jsonrpc.h"
 #include "openvswitch/dynamic-string.h"
 #include "openvswitch/hmap.h"
+#include "openvswitch/jsmap.h"
 #include "openvswitch/json.h"
 #include "openvswitch/vlog.h"
 #include "ovsdb-error.h"
@@ -602,11 +603,12 @@ process_notification(const struct json *table_updates, struct ovsdb *db)
         txn = ovsdb_txn_create(db);
 
         /* Process each table update. */
-        struct shash_node *node;
-        SHASH_FOR_EACH (node, json_object(table_updates)) {
-            struct json *table_update = node->data;
+        struct jsmap_node *node;
+        JSMAP_FOR_EACH (node, json_object(table_updates)) {
+            struct json *table_update = node->value;
             if (table_update) {
-                error = process_table_update(table_update, node->name, db, txn);
+                error = process_table_update(table_update,
+                                             json_string(node->key), db, txn);
                 if (error) {
                     break;
                 }
@@ -639,9 +641,9 @@ process_table_update(const struct json *table_update, const char *table_name,
                            "<table-update> for table is not object");
     }
 
-    struct shash_node *node;
-    SHASH_FOR_EACH (node, json_object(table_update)) {
-        struct json *row_update = node->data;
+    struct jsmap_node *node;
+    JSMAP_FOR_EACH (node, json_object(table_update)) {
+        struct json *row_update = node->value;
         struct json *old, *new;
 
         if (row_update->type != JSON_OBJECT) {
@@ -650,13 +652,13 @@ process_table_update(const struct json *table_update, const char *table_name,
         }
 
         struct uuid uuid;
-        if (!uuid_from_string(&uuid, node->name)) {
+        if (!uuid_from_string(&uuid, json_string(node->key))) {
             return ovsdb_syntax_error(table_update, "bad row UUID",
                                       "<table-update> names must be UUIDs");
         }
 
-        old = shash_find_data(json_object(row_update), "old");
-        new = shash_find_data(json_object(row_update), "new");
+        old = json_object_find(row_update, "old");
+        new = json_object_find(row_update, "new");
 
         struct ovsdb_error *error;
         error = (!new ? ovsdb_table_execute_delete(txn, &uuid, table)

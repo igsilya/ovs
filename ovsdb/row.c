@@ -20,6 +20,7 @@
 #include <stddef.h>
 
 #include "openvswitch/dynamic-string.h"
+#include "openvswitch/jsmap.h"
 #include "openvswitch/json.h"
 #include "openvswitch/shash.h"
 #include "ovsdb-error.h"
@@ -306,7 +307,7 @@ ovsdb_row_from_json(struct ovsdb_row *row, const struct json *json,
 {
     struct ovsdb_table_schema *schema = row->table->schema;
     struct ovsdb_error *error;
-    struct shash_node *node;
+    struct jsmap_node *node;
 
     ovs_assert(!is_diff || !symtab);
 
@@ -314,8 +315,8 @@ ovsdb_row_from_json(struct ovsdb_row *row, const struct json *json,
         return ovsdb_syntax_error(json, NULL, "row must be JSON object");
     }
 
-    SHASH_FOR_EACH (node, json_object(json)) {
-        const char *column_name = node->name;
+    JSMAP_FOR_EACH (node, json_object(json)) {
+        const char *column_name = json_string(node->key);
         const struct ovsdb_column *column;
         struct ovsdb_datum datum;
 
@@ -328,9 +329,9 @@ ovsdb_row_from_json(struct ovsdb_row *row, const struct json *json,
 
         if (is_diff) {
             error = ovsdb_transient_datum_from_json(&datum, &column->type,
-                                                    node->data);
+                                                    node->value);
         } else {
-            error = ovsdb_datum_from_json(&datum, &column->type, node->data,
+            error = ovsdb_datum_from_json(&datum, &column->type, node->value,
                                           symtab);
         }
         if (error) {

@@ -32,6 +32,7 @@
 #include "fatal-signal.h"
 #include "file.h"
 #include "hash.h"
+#include "openvswitch/jsmap.h"
 #include "openvswitch/json.h"
 #include "jsonrpc.h"
 #include "jsonrpc-server.h"
@@ -2966,8 +2967,8 @@ static bool
 remotes_from_json(struct shash *remotes, const struct json *json)
 {
     struct ovsdb_jsonrpc_options *options;
-    const struct shash_node *node;
-    const struct shash *object;
+    const struct jsmap_node *node;
+    const struct json *json_opt;
 
     free_remotes(remotes);
 
@@ -2980,17 +2981,16 @@ remotes_from_json(struct shash *remotes, const struct json *json)
         return false;
     }
 
-    object = json_object(json);
-    SHASH_FOR_EACH (node, object) {
-        options = ovsdb_jsonrpc_default_options(node->name);
-        shash_add(remotes, node->name, options);
+    JSMAP_FOR_EACH (node, json_object(json)) {
+        options = ovsdb_jsonrpc_default_options(json_string(node->key));
+        shash_add(remotes, json_string(node->key), options);
 
-        json = node->data;
-        if (json->type == JSON_OBJECT) {
-            ovsdb_jsonrpc_options_update_from_json(options, node->data, false);
-        } else if (json->type != JSON_NULL) {
+        json_opt = node->value;
+        if (json_opt->type == JSON_OBJECT) {
+            ovsdb_jsonrpc_options_update_from_json(options, json_opt, false);
+        } else if (json_opt->type != JSON_NULL) {
             VLOG_WARN("%s: JSON-RPC options are not a JSON object or null",
-                      node->name);
+                      json_string(node->key));
             free_remotes(remotes);
             return false;
         }
@@ -3060,16 +3060,16 @@ db_config_from_json(const char *name, const struct json *json)
         }
         source = ovsdb_parser_member(&parser, "source", type);
 
-        if (source && shash_count(json_object(source)) != 1) {
+        if (source && jsmap_count(json_object(source)) != 1) {
             ovsdb_parser_raise_error(&parser,
                 "'source' should be an object with exactly one element");
         } else if (source) {
-            const struct shash_node *node = shash_first(json_object(source));
+            const struct jsmap_node *node = jsmap_first(json_object(source));
             const struct json *options;
 
             ovs_assert(node);
-            conf->source = xstrdup(node->name);
-            options = node->data;
+            conf->source = xstrdup(json_string(node->key));
+            options = node->value;
 
             conf->options = get_jsonrpc_options(conf->source, conf->model);
 
@@ -3100,8 +3100,7 @@ db_config_from_json(const char *name, const struct json *json)
 static bool
 databases_from_json(struct shash *db_conf, const struct json *json)
 {
-    const struct shash_node *node;
-    const struct shash *object;
+    const struct jsmap_node *node;
 
     free_database_configs(db_conf);
 
@@ -3113,12 +3112,12 @@ databases_from_json(struct shash *db_conf, const struct json *json)
         VLOG_WARN("config: 'databases' is not a JSON object or null");
     }
 
-    object = json_object(json);
-    SHASH_FOR_EACH (node, object) {
-        struct db_config *conf = db_config_from_json(node->name, node->data);
+    JSMAP_FOR_EACH (node, json_object(json)) {
+        const char *db_name = json_string(node->key);
+        struct db_config *conf = db_config_from_json(db_name, node->value);
 
         if (conf) {
-            shash_add(db_conf, node->name, conf);
+            shash_add(db_conf, db_name, conf);
         } else {
             free_database_configs(db_conf);
             return false;
@@ -3154,14 +3153,12 @@ load_config(FILE *config_file, struct shash *remotes,
         return false;
     }
 
-    if (!remotes_from_json(remotes,
-                           shash_find_data(json_object(json), "remotes"))) {
+    if (!remotes_from_json(remotes, json_object_find(json, "remotes"))) {
         VLOG_WARN("config: failed to parse 'remotes'");
         json_destroy(json);
         return false;
     }
-    if (!databases_from_json(db_conf, shash_find_data(json_object(json),
-                                                      "databases"))) {
+    if (!databases_from_json(db_conf, json_object_find(json, "databases"))) {
         VLOG_WARN("config: failed to parse 'databases'");
         free_remotes(remotes);
         json_destroy(json);
@@ -3169,15 +3166,15 @@ load_config(FILE *config_file, struct shash *remotes,
     }
 
     struct json *string;
-    string = shash_find_data(json_object(json), "sync_from");
+    string = json_object_find(json, "sync_from");
     free(*sync_from);
     *sync_from = string ? xstrdup(json_string(string)) : NULL;
 
-    string = shash_find_data(json_object(json), "sync_exclude");
+    string = json_object_find(json, "sync_exclude");
     free(*sync_exclude);
     *sync_exclude = string ? xstrdup(json_string(string)) : NULL;
 
-    struct json *boolean = shash_find_data(json_object(json), "is_backup");
+    struct json *boolean = json_object_find(json, "is_backup");
     *is_backup = boolean ? json_boolean(boolean) : false;
 
     json_destroy(json);

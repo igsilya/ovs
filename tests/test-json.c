@@ -16,6 +16,7 @@
 
 #include <config.h>
 #undef NDEBUG
+#include "openvswitch/jsmap.h"
 #include "openvswitch/json.h"
 #include <ctype.h>
 #include <errno.h>
@@ -38,10 +39,10 @@ static void test_json_equal(const struct json *a, const struct json *b,
                             bool allow_the_same);
 
 static void
-test_json_equal_object(const struct shash *a, const struct shash *b,
+test_json_equal_object(const struct jsmap *a, const struct jsmap *b,
                        bool allow_the_same)
 {
-    struct shash_node *a_node;
+    struct jsmap_node *a_node;
 
     ovs_assert(allow_the_same || a != b);
 
@@ -49,13 +50,13 @@ test_json_equal_object(const struct shash *a, const struct shash *b,
         return;
     }
 
-    ovs_assert(shash_count(a) == shash_count(b));
+    ovs_assert(jsmap_count(a) == jsmap_count(b));
 
-    SHASH_FOR_EACH (a_node, a) {
-        struct shash_node *b_node = shash_find(b, a_node->name);
+    JSMAP_FOR_EACH (a_node, a) {
+        struct jsmap_node *b_node = jsmap_get_node(b, a_node->key);
 
         ovs_assert(b_node);
-        test_json_equal(a_node->data, b_node->data, allow_the_same);
+        test_json_equal(a_node->value, b_node->value, allow_the_same);
     }
 }
 

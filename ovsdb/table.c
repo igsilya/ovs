@@ -19,6 +19,7 @@
 
 #include <limits.h>
 
+#include "openvswitch/jsmap.h"
 #include "openvswitch/json.h"
 #include "column.h"
 #include "ovsdb-error.h"
@@ -128,7 +129,7 @@ ovsdb_table_schema_from_json(const struct json *json, const char *name,
 {
     struct ovsdb_table_schema *ts;
     const struct json *columns, *mutable, *max_rows, *is_root, *indexes;
-    struct shash_node *node;
+    struct jsmap_node *node;
     struct ovsdb_parser parser;
     struct ovsdb_error *error;
     long long int n_max_rows;
@@ -158,7 +159,7 @@ ovsdb_table_schema_from_json(const struct json *json, const char *name,
         n_max_rows = UINT_MAX;
     }
 
-    if (shash_is_empty(json_object(columns))) {
+    if (jsmap_is_empty(json_object(columns))) {
         return ovsdb_syntax_error(json, NULL,
                                   "table must have at least one column");
     }
@@ -167,16 +168,17 @@ ovsdb_table_schema_from_json(const struct json *json, const char *name,
                                    mutable ? json_boolean(mutable) : true,
                                    MIN(n_max_rows, UINT_MAX),
                                    is_root ? json_boolean(is_root) : false);
-    SHASH_FOR_EACH (node, json_object(columns)) {
+    JSMAP_FOR_EACH (node, json_object(columns)) {
+        const char *column_name = json_string(node->key);
         struct ovsdb_column *column;
 
-        if (node->name[0] == '_') {
+        if (column_name[0] == '_') {
             error = ovsdb_syntax_error(json, NULL, "names beginning with "
                                        "\"_\" are reserved");
-        } else if (!ovsdb_parser_is_id(node->name)) {
+        } else if (!ovsdb_parser_is_id(column_name)) {
             error = ovsdb_syntax_error(json, NULL, "name must be a valid id");
         } else {
-            error = ovsdb_column_from_json(node->data, node->name, &column);
+            error = ovsdb_column_from_json(node->value, column_name, &column);
         }
         if (error) {
             goto error;
@@ -356,7 +358,8 @@ ovsdb_table_get_row(const struct ovsdb_table *table, const struct uuid *uuid)
 
 struct ovsdb_error *
 ovsdb_table_execute_insert(struct ovsdb_txn *txn, const struct uuid *row_uuid,
-                           struct ovsdb_table *table, struct json *json_row)
+                           struct ovsdb_table *table,
+                           const struct json *json_row)
 {
     const struct ovsdb_row *old_row = ovsdb_table_get_row(table, row_uuid);
     if (old_row) {
@@ -398,8 +401,8 @@ ovsdb_table_execute_delete(struct ovsdb_txn *txn, const struct uuid *row_uuid,
 
 struct ovsdb_error *
 ovsdb_table_execute_update(struct ovsdb_txn *txn, const struct uuid *row_uuid,
-                           struct ovsdb_table *table, struct json *json_row,
-                           bool xor)
+                           struct ovsdb_table *table,
+                           const struct json *json_row, bool xor)
 {
     const struct ovsdb_row *row = ovsdb_table_get_row(table, row_uuid);
     if (!row) {

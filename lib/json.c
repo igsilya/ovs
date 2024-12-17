@@ -25,10 +25,10 @@
 #include <string.h>
 
 #include "cooperative-multitasking.h"
-#include "openvswitch/dynamic-string.h"
 #include "hash.h"
 #include "json.h"
-#include "openvswitch/shash.h"
+#include "openvswitch/dynamic-string.h"
+#include "openvswitch/jsmap.h"
 #include "unicode.h"
 #include "util.h"
 #include "uuid.h"
@@ -388,7 +388,7 @@ json_object_create(void)
 {
     struct json *json = json_create(JSON_OBJECT);
     json->object = xmalloc(sizeof *json->object);
-    shash_init(json->object);
+    jsmap_init(json->object);
     return json;
 }
 
@@ -411,13 +411,21 @@ json_real_create(double real)
 void
 json_object_put(struct json *json, const char *name, struct json *value)
 {
-    json_destroy(shash_replace(json->object, name, value));
+    struct json *key = json_string_create(name);
+
+    jsmap_replace(json->object, key, value, false);
+    json_destroy(key);
+    json_destroy(value);
 }
 
 void
 json_object_put_nocopy(struct json *json, char *name, struct json *value)
 {
-    json_destroy(shash_replace_nocopy(json->object, name, value));
+    struct json *key = json_string_create_nocopy(name);
+
+    jsmap_replace(json->object, key, value, false);
+    json_destroy(key);
+    json_destroy(value);
 }
 
 void
@@ -435,6 +443,26 @@ json_object_put_format(struct json *json,
     json_object_put(json, name,
                     json_string_create_nocopy(xvasprintf(format, args)));
     va_end(args);
+}
+
+struct json *
+json_object_find(const struct json *json, const char *name)
+{
+    struct json *key = json_string_create(name);
+    struct jsmap_node *node = jsmap_get_node(json->object, key);
+
+    json_destroy(key);
+    return node ? node->value : NULL;
+}
+
+struct json *
+json_object_find_and_delete(struct json *json, const char *name)
+{
+    struct json *key = json_string_create(name);
+    struct json *value = jsmap_find_and_delete(json->object, key);
+
+    json_destroy(key);
+    return value;
 }
 
 const char *
@@ -481,11 +509,11 @@ json_array_at(const struct json *json, size_t index)
     return json->elements[index];
 }
 
-struct shash *
+struct jsmap *
 json_object(const struct json *json)
 {
     ovs_assert(json->type == JSON_OBJECT);
-    return CONST_CAST(struct shash *, json->object);
+    return CONST_CAST(struct jsmap *, json->object);
 }
 
 bool
@@ -509,7 +537,7 @@ json_integer(const struct json *json)
     return json->integer;
 }
 
-static void json_destroy_object(struct shash *object, bool yield);
+static void json_destroy_object(struct jsmap *object, bool yield);
 static void json_destroy_array(struct json *json, bool yield);
 
 /* Frees 'json' and everything it points to, recursively. */
@@ -549,25 +577,12 @@ json_destroy__(struct json *json, bool yield)
 }
 
 static void
-json_destroy_object(struct shash *object, bool yield)
+json_destroy_object(struct jsmap *object, bool yield)
 {
-    struct shash_node *node;
-
     if (yield) {
         cooperative_multitasking_yield();
     }
-
-    SHASH_FOR_EACH_SAFE (node, object) {
-        struct json *value = node->data;
-
-        if (yield) {
-            json_destroy_with_yield(value);
-        } else {
-            json_destroy(value);
-        }
-        shash_delete(object, node);
-    }
-    shash_destroy(object);
+    jsmap_destroy(object, yield);
     free(object);
 }
 
@@ -593,7 +608,7 @@ json_destroy_array(struct json *json, bool yield)
     }
 }
 
-static struct json *json_deep_clone_object(const struct shash *object);
+static struct json *json_deep_clone_object(const struct jsmap *object);
 static struct json *json_deep_clone_array(const struct json *);
 
 /* Returns a deep copy of 'json'. */
@@ -637,16 +652,11 @@ json_nullable_clone(const struct json *json)
 }
 
 static struct json *
-json_deep_clone_object(const struct shash *object)
+json_deep_clone_object(const struct jsmap *object)
 {
-    struct shash_node *node;
-    struct json *json;
+    struct json *json = json_object_create();
 
-    json = json_object_create();
-    SHASH_FOR_EACH (node, object) {
-        struct json *value = node->data;
-        json_object_put(json, node->name, json_deep_clone(value));
-    }
+    jsmap_clone(json->object, object, true);
     return json;
 }
 
@@ -681,17 +691,18 @@ json_deep_clone_array(const struct json *json)
 }
 
 static size_t
-json_hash_object(const struct shash *object, size_t basis)
+json_hash_object(const struct jsmap *object, size_t basis)
 {
-    const struct shash_node **nodes;
+    const struct jsmap_node **nodes;
     size_t n, i;
 
-    nodes = shash_sort(object);
-    n = shash_count(object);
+    nodes = jsmap_sort(object);
+    n = jsmap_count(object);
     for (i = 0; i < n; i++) {
-        const struct shash_node *node = nodes[i];
-        basis = hash_string(node->name, basis);
-        basis = json_hash(node->data, basis);
+        const struct jsmap_node *node = nodes[i];
+
+        basis = json_hash(node->key, basis);
+        basis = json_hash(node->value, basis);
     }
     free(nodes);
     return basis;
@@ -743,25 +754,6 @@ json_hash(const struct json *json, size_t basis)
 }
 
 static bool
-json_equal_object(const struct shash *a, const struct shash *b)
-{
-    struct shash_node *a_node;
-
-    if (shash_count(a) != shash_count(b)) {
-        return false;
-    }
-
-    SHASH_FOR_EACH (a_node, a) {
-        struct shash_node *b_node = shash_find(b, a_node->name);
-        if (!b_node || !json_equal(a_node->data, b_node->data)) {
-            return false;
-        }
-    }
-
-    return true;
-}
-
-static bool
 json_equal_array(const struct json *a, const struct json *b)
 {
     size_t i, n = json_array_size(a);
@@ -792,7 +784,7 @@ json_equal(const struct json *a, const struct json *b)
 
     switch (a->type) {
     case JSON_OBJECT:
-        return json_equal_object(a->object, b->object);
+        return jsmap_equal(a->object, b->object);
 
     case JSON_ARRAY:
         return json_equal_array(a, b);
@@ -1716,7 +1708,7 @@ struct json_serializer {
 };
 
 static void json_serialize(const struct json *, struct json_serializer *);
-static void json_serialize_object(const struct shash *object,
+static void json_serialize_object(const struct jsmap *object,
                                   struct json_serializer *);
 static void json_serialize_array(const struct json *,
                                  struct json_serializer *);
@@ -1816,7 +1808,7 @@ indent_line(struct json_serializer *s)
 }
 
 static void
-json_serialize_object_member(size_t i, const struct shash_node *node,
+json_serialize_object_member(size_t i, const struct jsmap_node *node,
                              struct json_serializer *s)
 {
     struct ds *ds = s->ds;
@@ -1826,16 +1818,16 @@ json_serialize_object_member(size_t i, const struct shash_node *node,
         indent_line(s);
     }
 
-    json_serialize_string(node->name, ds);
+    json_serialize(node->key, s);
     ds_put_char(ds, ':');
     if (s->flags & JSSF_PRETTY) {
         ds_put_char(ds, ' ');
     }
-    json_serialize(node->data, s);
+    json_serialize(node->value, s);
 }
 
 static void
-json_serialize_object(const struct shash *object, struct json_serializer *s)
+json_serialize_object(const struct jsmap *object, struct json_serializer *s)
 {
     struct ds *ds = s->ds;
 
@@ -1849,21 +1841,21 @@ json_serialize_object(const struct shash *object, struct json_serializer *s)
     }
 
     if (s->flags & JSSF_SORT) {
-        const struct shash_node **nodes;
+        const struct jsmap_node **nodes;
         size_t n, i;
 
-        nodes = shash_sort(object);
-        n = shash_count(object);
+        nodes = jsmap_sort(object);
+        n = jsmap_count(object);
         for (i = 0; i < n; i++) {
             json_serialize_object_member(i, nodes[i], s);
         }
         free(nodes);
     } else {
-        struct shash_node *node;
+        struct jsmap_node *node;
         size_t i;
 
         i = 0;
-        SHASH_FOR_EACH (node, object) {
+        JSMAP_FOR_EACH (node, object) {
             json_serialize_object_member(i++, node, s);
         }
     }
