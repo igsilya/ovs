@@ -177,6 +177,7 @@ lib_libopenvswitch_la_SOURCES = \
 	lib/ipf.h \
 	lib/jhash.c \
 	lib/jhash.h \
+	lib/jsmap.c \
 	lib/json.c \
 	lib/json.h \
 	lib/jsonrpc.c \
