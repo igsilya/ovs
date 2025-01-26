@@ -415,6 +415,25 @@ def decode_nlm(msg, indent=4, dump=True):
                     },
                 },
             },
+            "OVS_ACTION_ATTR_CHECK_PKT_LEN": {
+                "header": "> Decode OVS_CHECK_PKT_LEN_ATTR_* TLVs:",
+                "indent": 4,
+                "attr_str_func": get_check_pkt_len_attr_str,
+                "decode_tree": {
+                    "OVS_CHECK_PKT_LEN_ATTR_ACTIONS_IF_GREATER": {
+                        "header": "> Decode OVS_ACTION_ATTR_* TLVs:",
+                        "indent": 4,
+                        "attr_str_func": get_ovs_action_attr_str,
+                        "decode_tree": None,
+                    },
+                    "OVS_CHECK_PKT_LEN_ATTR_ACTIONS_IF_LESS_EQUAL": {
+                        "header": "> Decode OVS_ACTION_ATTR_* TLVs:",
+                        "indent": 4,
+                        "attr_str_func": get_ovs_action_attr_str,
+                        "decode_tree": None,
+                    },
+                },
+            },
         },
     }
 
@@ -563,6 +582,20 @@ def get_ovs_action_attr_str(attr):
         return "<UNKNOWN:{}>".format(attr)
 
     return ovs_action_attr[attr]
+
+
+#
+# get_check_pkt_len_attr_str()
+#
+def get_check_pkt_len_attr_str(attr):
+    check_pkt_len_attr = ["OVS_CHECK_PKT_LEN_ATTR_UNSPEC",
+                          "OVS_CHECK_PKT_LEN_ATTR_PKT_LEN",
+                          "OVS_CHECK_PKT_LEN_ATTR_ACTIONS_IF_GREATER",
+                          "OVS_CHECK_PKT_LEN_ATTR_ACTIONS_IF_LESS_EQUAL"]
+    if attr < 0 or attr >= len(check_pkt_len_attr):
+        return "<UNKNOWN:{}>".format(attr)
+
+    return check_pkt_len_attr[attr]
 
 
 #
