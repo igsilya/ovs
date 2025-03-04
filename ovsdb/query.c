@@ -19,9 +19,18 @@
 
 #include "column.h"
 #include "condition.h"
+#include "coverage.h"
 #include "row.h"
 #include "table.h"
 #include "transaction.h"
+
+COVERAGE_DEFINE(query_index_bail);
+COVERAGE_DEFINE(query_index_done);
+COVERAGE_DEFINE(query_index_match);
+COVERAGE_DEFINE(query_uuid_done);
+COVERAGE_DEFINE(query_uuid_match);
+COVERAGE_DEFINE(query_linear_done);
+COVERAGE_DEFINE(query_linear_match);
 
 struct txn_state {
     const struct ovsdb_condition *cnd;
@@ -81,6 +90,7 @@ ovsdb_query_index(struct ovsdb_table *table,
         ovsdb_txn_for_each_change(txn, search_txn, &ts);
 
         if (ts.match) {
+            COVERAGE_INC(query_index_bail);
             return false;
         }
     }
@@ -167,9 +177,11 @@ ovsdb_query(struct ovsdb_table *table, const struct ovsdb_condition *cnd,
         /* Optimize the case where the query has a clause of the form "uuid ==
          * <some-uuid>", since we have an index on UUID. */
 
+        COVERAGE_INC(query_uuid_done);
         row = ovsdb_table_get_row(table, &cnd->clauses[0].arg.keys[0].uuid);
         if (row && row->table == table &&
             ovsdb_condition_match_every_clause(row, cnd)) {
+            COVERAGE_INC(query_uuid_match);
             output_row(row, aux);
         }
         return;
@@ -177,7 +189,9 @@ ovsdb_query(struct ovsdb_table *table, const struct ovsdb_condition *cnd,
 
     /* Check the indexes. */
     if (ovsdb_query_index(table, cnd, &row, txn)) {
+        COVERAGE_INC(query_index_done);
         if (row) {
+            COVERAGE_INC(query_index_match);
             output_row(row, aux);
             return;
         }
@@ -185,9 +199,11 @@ ovsdb_query(struct ovsdb_table *table, const struct ovsdb_condition *cnd,
     }
 
     /* Linear scan. */
+    COVERAGE_INC(query_linear_done);
     HMAP_FOR_EACH_SAFE (row, hmap_node, &table->rows) {
         if (ovsdb_condition_match_every_clause(row, cnd) &&
             !output_row(row, aux)) {
+            COVERAGE_INC(query_linear_match);
             break;
         }
     }
