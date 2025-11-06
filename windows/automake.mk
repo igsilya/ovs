@@ -26,18 +26,37 @@ windows_installer: all
 	cp -f $(top_srcdir)/ovsdb/ovsdb-tool.pdb windows/ovs-windows-installer/Symbols/
 #Third party files needed by the installer
 	cp -f $(PTHREAD_WIN32_DIR_DLL_WIN_FORM)/*.dll windows/ovs-windows-installer/Binaries/
-	cp -f "/c/Program Files (x86)/Common Files/Merge Modules/Microsoft_VC140_CRT_x86.msm" windows/ovs-windows-installer/Redist/Microsoft_VC140_CRT_x86.msm
-	cp -f "/c/Program Files (x86)/Common Files/Merge Modules/Microsoft_VC140_CRT_x64.msm" windows/ovs-windows-installer/Redist/Microsoft_VC140_CRT_x64.msm
+	if [ -d "/c/Program Files/Microsoft Visual Studio/2022/Enterprise" ]; then \
+		VSDIR="/c/Program Files/Microsoft Visual Studio/2022/Enterprise"; \
+	else \
+		VSDIR="/c/Program Files/Microsoft Visual Studio/2022/Community"; \
+	fi && \
+	MSVCVER=$$(ls -d "$$VSDIR/VC/Redist/MSVC"/*/ | sort -V | tail -1) && \
+	MSVCVER=$$(basename "$$MSVCVER") && \
+	cp -f "$$VSDIR/VC/Redist/MSVC/$$MSVCVER/MergeModules/Microsoft_VC143_CRT_x86.msm" windows/ovs-windows-installer/Redist/Microsoft_VC143_CRT_x86.msm && \
+	cp -f "$$VSDIR/VC/Redist/MSVC/$$MSVCVER/MergeModules/Microsoft_VC143_CRT_x64.msm" windows/ovs-windows-installer/Redist/Microsoft_VC143_CRT_x64.msm
 #Forwarding extension files needed for the installer
+if VSTUDIO_WIN8
 	cp -f $(top_srcdir)/datapath-windows/x64/Win8$(VSTUDIO_CONFIG)/package/ovsext.cat windows/ovs-windows-installer/Driver/Win8/ovsext.cat
 	cp -f $(top_srcdir)/datapath-windows/x64/Win8$(VSTUDIO_CONFIG)/package/ovsext.inf windows/ovs-windows-installer/Driver/Win8/ovsext.inf
 	cp -f $(top_srcdir)/datapath-windows/x64/Win8$(VSTUDIO_CONFIG)/package/OVSExt.sys windows/ovs-windows-installer/Driver/Win8/ovsext.sys
+else
+	touch windows/ovs-windows-installer/Driver/Win8/ovsext.cat windows/ovs-windows-installer/Driver/Win8/ovsext.inf windows/ovs-windows-installer/Driver/Win8/ovsext.sys
+endif
+if VSTUDIO_WIN8_1
 	cp -f $(top_srcdir)/datapath-windows/x64/Win8.1$(VSTUDIO_CONFIG)/package/ovsext.cat windows/ovs-windows-installer/Driver/Win8.1/ovsext.cat
 	cp -f $(top_srcdir)/datapath-windows/x64/Win8.1$(VSTUDIO_CONFIG)/package/ovsext.inf windows/ovs-windows-installer/Driver/Win8.1/ovsext.inf
 	cp -f $(top_srcdir)/datapath-windows/x64/Win8.1$(VSTUDIO_CONFIG)/package/ovsext.sys windows/ovs-windows-installer/Driver/Win8.1/ovsext.sys
+else
+	touch windows/ovs-windows-installer/Driver/Win8.1/ovsext.cat windows/ovs-windows-installer/Driver/Win8.1/ovsext.inf windows/ovs-windows-installer/Driver/Win8.1/ovsext.sys
+endif
+if VSTUDIO_WIN10
 	cp -f $(top_srcdir)/datapath-windows/x64/Win10$(VSTUDIO_CONFIG)/package/ovsext.cat windows/ovs-windows-installer/Driver/Win10/ovsext.cat
 	cp -f $(top_srcdir)/datapath-windows/x64/Win10$(VSTUDIO_CONFIG)/package/ovsext.inf windows/ovs-windows-installer/Driver/Win10/ovsext.inf
 	cp -f $(top_srcdir)/datapath-windows/x64/Win10$(VSTUDIO_CONFIG)/package/ovsext.sys windows/ovs-windows-installer/Driver/Win10/ovsext.sys
+else
+	touch windows/ovs-windows-installer/Driver/Win10/ovsext.cat windows/ovs-windows-installer/Driver/Win10/ovsext.inf windows/ovs-windows-installer/Driver/Win10/ovsext.sys
+endif
 	MSBuild.exe windows/ovs-windows-installer.sln //nologo //target:Build //p:Configuration="Release" //p:Version="$(PACKAGE_VERSION)" //p:Platform=$(PLATFORM)
 
 EXTRA_DIST += \

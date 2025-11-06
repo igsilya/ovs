@@ -703,3 +703,144 @@ jobs:
         path: |
           rpm/rpmbuild/SRPMS/*.rpm
           rpm/rpmbuild/RPMS/*/*.rpm
+
+  build-windows:
+    env:
+      CONFIGURATION: ${{ matrix.configuration }}
+    name: windows ${{ matrix.configuration }}
+    runs-on: windows-2022
+    timeout-minutes: 60
+
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [Debug, Release]
+
+    steps:
+    - name: checkout
+      uses: actions/checkout@v4
+
+    - name: set up python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ env.python_default }}
+
+    - name: create python3 symlink
+      run:  |
+        $pythonPath = (Get-Command python).Source
+        $pythonDir = Split-Path $pythonPath
+        $python3Path = "$pythonDir\python3.exe"
+        if (Test-Path $python3Path) { Remove-Item $python3Path -Force }
+        New-Item -Type HardLink -Path $python3Path -Value $pythonPath
+
+    - name: cache
+      id: openssl_cache
+      uses: actions/cache@v4
+      with:
+        path: C:\ovs-build-downloads
+        key:  win-openssl-3.0
+
+    - name: install openssl
+      run:  |
+        $OpenSSLPath = "C:\OpenSSL-Win64"
+        if (Test-Path $OpenSSLPath) {
+            Remove-Item -Recurse -Force -Path $OpenSSLPath
+        }
+        New-Item -ItemType Directory -Force -Path C:\ovs-build-downloads
+
+        # Find and download the latest stable OpenSSL 3.0.
+        $URL = "https://raw.githubusercontent.com/slproweb/opensslhashes/master/win32_openssl_hashes.json"
+        $webData = (Invoke-WebRequest -Uri $URL).content | ConvertFrom-Json
+        $source = ($webData.files.PSObject.Properties | Where-Object {
+            $_.Value.basever   -match "^3\.0\.[0-9]+" -and
+            $_.Value.bits      -eq    "64"            -and
+            $_.Value.arch      -eq    "INTEL"         -and
+            $_.Value.installer -eq    "exe"           -and
+            -not $_.Value.light
+        } | Select-Object Value | Select-Object -First 1).PSObject.Properties.Value
+
+        Write-Host "Latest OpenSSL 3.0:" ($source | Format-List | Out-String)
+
+        $destination = "C:\ovs-build-downloads\Win64OpenSSL.exe"
+        if (Test-Path $destination) {
+            $fileHash = (Get-FileHash $destination -Algorithm SHA256).Hash.ToLower()
+            if ($fileHash -ne $source.sha256) {
+                Write-Host "Cache miss:" $fileHash "!=" $source.sha256
+                Remove-Item -Path $destination
+            }
+        }
+
+        if (Test-Path $destination) {
+            Write-Host "Using cached:" $destination
+        } else {
+            Write-Host "Downloading:" $source.url
+            Invoke-WebRequest $source.url -OutFile $destination
+        }
+
+        Write-Host "Installing:" $destination
+        $installArgs = @{
+            FilePath     = $destination
+            ArgumentList = '/silent /verysilent /sp- /suppressmsgboxes ' +
+                           '/DIR="' + $OpenSSLPath + '"'
+            Wait         = $true
+        }
+        Start-Process @installArgs
+
+    - name: clone pthreads4w
+      run:  git clone -q https://git.code.sf.net/p/pthreads4w/code c:\pthreads4w-code
+
+    - name: install python dependencies
+      run:  python -m pip install pywin32 --disable-pip-version-check
+
+    - name: setup msvc environment
+      shell: cmd
+      run:  |
+        for /f %%i in ('where python') do set PYTHON_DIR=%%~dpi
+        set "PATH=%PYTHON_DIR%;%PATH%"
+        call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+        echo PATH=%PATH%>> %GITHUB_ENV%
+        echo INCLUDE=%INCLUDE%>> %GITHUB_ENV%
+        echo LIB=%LIB%>> %GITHUB_ENV%
+        echo LIBPATH=%LIBPATH%>> %GITHUB_ENV%
+
+    - name: prepare
+      shell: cmd
+      run:  |
+        C:\msys64\msys2_shell.cmd -here -defterm -no-start -use-full-path ^
+            -c ".ci/windows-prepare.sh 2>&1"
+
+    - name: build
+      shell: cmd
+      run:  |
+        C:\msys64\msys2_shell.cmd -here -defterm -no-start -use-full-path ^
+            -c ".ci/windows-build.sh %CONFIGURATION% 2>&1"
+
+    - name: prepare artifacts
+      run:  |
+        Copy-Item C:\PTHREADS-BUILT\bin\pthreadVC3.dll C:\openvswitch\usr\bin
+        Copy-Item C:\PTHREADS-BUILT\bin\pthreadVC3.dll C:\openvswitch\usr\sbin
+        New-Item -ItemType Directory -Force -Path C:\openvswitch\driver
+        Copy-Item datapath-windows\x64\Win10$env:CONFIGURATION\package\* `
+                  C:\openvswitch\driver
+        Copy-Item datapath-windows\x64\Win10$env:CONFIGURATION\package.cer `
+                  C:\openvswitch\driver
+        Copy-Item datapath-windows\misc\* C:\openvswitch\driver
+        Copy-Item windows\ovs-windows-installer\bin\x64\Release\OpenvSwitch.msi `
+                  C:\OpenvSwitch-$env:CONFIGURATION.msi
+
+    - name: create zip archive
+      run:  |
+        Compress-Archive -Path C:\openvswitch\* `
+                         -DestinationPath C:\ovs-main-$env:CONFIGURATION.zip
+
+    - name: upload zip package
+      uses: actions/upload-artifact@v4
+      with:
+        name: windows-zip-${{ matrix.configuration }}
+        path: C:\ovs-main-${{ matrix.configuration }}.zip
+
+    - name: upload msi package
+      uses: actions/upload-artifact@v4
+      with:
+        name: windows-msi-${{ matrix.configuration }}
+        path: C:\OpenvSwitch-${{ matrix.configuration }}.msi

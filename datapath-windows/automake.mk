@@ -89,10 +89,16 @@ EXTRA_DIST += \
 	datapath-windows/ovsext/resource.h
 
 datapath_windows_analyze: all
-	MSBuild.exe //nologo //maxcpucount datapath-windows/ovsext.sln /target:Build /property:Configuration="Win10Analyze"
-	MSBuild.exe //nologo //maxcpucount datapath-windows/ovsext.sln /target:Build /property:Configuration="Win8.1Analyze"
-	MSBuild.exe //nologo //maxcpucount datapath-windows/ovsext.sln /target:Build /property:Configuration="Win8Analyze"
+if VSTUDIO_WIN10
+	MSBuild.exe //nologo //maxcpucount datapath-windows/ovsext.sln /target:Build /property:Configuration="Win10Analyze" /property:Version="$(PACKAGE_VERSION)"
+endif
+if VSTUDIO_WIN8_1
+	MSBuild.exe //nologo //maxcpucount datapath-windows/ovsext.sln /target:Build /property:Configuration="Win8.1Analyze" /property:Version="$(PACKAGE_VERSION)"
+endif
+if VSTUDIO_WIN8
+	MSBuild.exe //nologo //maxcpucount datapath-windows/ovsext.sln /target:Build /property:Configuration="Win8Analyze" /property:Version="$(PACKAGE_VERSION)"
+endif
 
 datapath_windows: all
-	MSBuild.exe //nologo //maxcpucount datapath-windows/ovsext.sln /target:Build /property:Configuration="Win10Debug"
-	MSBuild.exe //nologo //maxcpucount datapath-windows/ovsext.sln /target:Build /property:Configuration="Win10Release"
+	MSBuild.exe //nologo //maxcpucount datapath-windows/ovsext.sln /target:Build /property:Configuration="Win10Debug" /property:Version="$(PACKAGE_VERSION)"
+	MSBuild.exe //nologo //maxcpucount datapath-windows/ovsext.sln /target:Build /property:Configuration="Win10Release" /property:Version="$(PACKAGE_VERSION)"

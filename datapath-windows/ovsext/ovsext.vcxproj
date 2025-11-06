@@ -252,6 +252,7 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Win10 Release|x64'">
     <ClCompile>
       <PreprocessorDefinitions>%(PreprocessorDefinitions);NDIS_WDM=1;NDIS640=1</PreprocessorDefinitions>
+      <DisableSpecificWarnings>4996</DisableSpecificWarnings>
     </ClCompile>
     <Midl>
       <PreprocessorDefinitions>%(PreprocessorDefinitions);NDIS_WDM=1;NDIS640=1</PreprocessorDefinitions>
@@ -307,6 +308,7 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Win10 Debug|x64'">
     <ClCompile>
       <PreprocessorDefinitions>%(PreprocessorDefinitions);NDIS_WDM=1;NDIS640=1</PreprocessorDefinitions>
+      <DisableSpecificWarnings>4996</DisableSpecificWarnings>
     </ClCompile>
     <Midl>
       <PreprocessorDefinitions>%(PreprocessorDefinitions);NDIS_WDM=1;NDIS640=1</PreprocessorDefinitions>
@@ -318,6 +320,7 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Win10Analyze|x64'">
     <ClCompile>
       <PreprocessorDefinitions>%(PreprocessorDefinitions);NDIS_WDM=1;NDIS640=1</PreprocessorDefinitions>
+      <DisableSpecificWarnings>4996</DisableSpecificWarnings>
     </ClCompile>
     <Midl>
       <PreprocessorDefinitions>%(PreprocessorDefinitions);NDIS_WDM=1;NDIS640=1</PreprocessorDefinitions>
