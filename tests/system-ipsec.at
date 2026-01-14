@@ -18,6 +18,17 @@ m4_define([START_PLUTO], [
         --ipsecdir $ovs_base/$1 --nssdir $ovs_base/$1/ipsec.d \
         --logfile $ovs_base/$1/pluto.log --secretsfile $ovs_base/$1/secrets \
         --rundir $ovs_base/$1], [0], [], [stderr])
+while test -z "$(cat $ovs_base/$1/pluto.pid)"; do
+    sleep 0.1
+done
+gdb -p $(cat $ovs_base/$1/pluto.pid) <<< "
+continue
+backtrace
+backtrace full
+quit
+y
+" >> $ovs_base/$1/gdb.out 2>&1 &
+AT_CHECK([ipsec whack --ctlsocket $ovs_base/$1/pluto.ctl --debug all])
 ])
 
 dnl IPSEC_ADD_NODE([namespace], [device], [address], [peer address],
@@ -137,7 +148,7 @@ dnl
 dnl Get numbers of all the currently active SAs.
 m4_define([IPSEC_SA_LIST], [
     AT_CHECK([ipsec --rundir $ovs_base/$1 status > $2.status])
-    AT_CHECK([grep -oE '#[0-9]+:' $2.status | sort -u], [0], [stdout])
+    AT_CHECK([grep -oE '#[0-9]+:' $2.status | sort -uV], [0], [stdout])
     AT_CHECK([mv stdout $2])
 ])
 
@@ -893,7 +904,7 @@ dnl These are not necessary, but nice to have in the test log in
 dnl order to spot pluto failures during the test.
 on_exit "grep -E 'Timed out|outdated|half-loaded|defunct' \
             $ovs_base/node-*/ovs-monitor-ipsec.log"
-on_exit "grep -E 'ABORT|ERROR' $ovs_base/node-*/pluto.log"
+on_exit "grep -E 'ABORT|ERROR' $ovs_base/node-*/pluto.log | grep -v 'wrong type'"
 
 m4_define([WAIT_FOR_LOADED_CONNS], [
   m4_for([id], [1], NODES, [1], [
@@ -935,15 +946,24 @@ dnl some connections may not become active until we revive it.  Some
 dnl connections may also never become active due to bugs in libreswan 4.x.
 WAIT_FOR_LOADED_CONNS()
 
+dnl Next section will check connectivity between all the nodes.
+dnl Different versions of Libreswan 4.x have issues where connections
+dnl are not being correctly established or never become active in a
+dnl way that can not be mitigated from ovs-monitor-ipsec or the test.
+dnl So, only checking connectivity for Libreswan 3- or 5+.
+dnl Skipping in the middle of the test, so test can still fail while
+dnl testing with Libreswan 4, if the first half fails.
+dnl AT_SKIP_IF([ipsec --version 2>&1 | grep -q 'Libreswan 4\.'])
+
+dnl Wait for the monitor and pluto to be done with all the connections.
+OVS_WAIT_UNTIL([grep -q 'all(19) configured tunnels are Up' \
+                    $ovs_base/node-1/ovs-monitor-ipsec.log])
+
 AT_CHECK([ipsec auto --help], [ignore], [ignore], [stderr])
 auto=auto
 if test -s stderr; then
     auto=
 fi
-
-dnl Wait for the monitor to be done with all the connections.
-OVS_WAIT_UNTIL([grep -q 'all(19) configured tunnels are Up' \
-                    $ovs_base/node-1/ovs-monitor-ipsec.log])
 
 dnl Remove connections for two tunnels.  One fully and one partially.
 AT_CHECK([ipsec $auto --ctlsocket $ovs_base/node-1/pluto.ctl \
@@ -962,15 +982,6 @@ OVS_WAIT_UNTIL([grep -qE 'tun-[[25]] .*need to reconcile' \
 
 dnl Wait for all the connections to be loaded back.
 WAIT_FOR_LOADED_CONNS()
-
-dnl Next section will check connectivity between all the nodes.
-dnl Different versions of Libreswan 4.x have issues where connections
-dnl are not being correctly established or never become active in a
-dnl way that can not be mitigated from ovs-monitor-ipsec or the test.
-dnl So, only checking connectivity for Libreswan 3- or 5+.
-dnl Skipping in the middle of the test, so test can still fail while
-dnl testing with Libreswan 4, if the first half fails.
-AT_SKIP_IF([ipsec --version 2>&1 | grep -q 'Libreswan 4\.'])
 
 dnl Turn off IPv6 and add static ARP entries for all namespaces to avoid
 dnl any broadcast / multicast traffic that would otherwise be multiplied
