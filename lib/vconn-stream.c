@@ -37,12 +37,17 @@
 
 VLOG_DEFINE_THIS_MODULE(vconn_stream);
 
+COVERAGE_DEFINE(vconn_buffer_full);
 COVERAGE_DEFINE(vconn_buffer_recv);
+COVERAGE_DEFINE(vconn_buffer_sent);
+COVERAGE_DEFINE(vconn_buffered);
 
 /* Active stream socket vconn. */
 
 /* Buffers must fit at least one OpenFlow message with maximum length.
- * We use 2x that size to improve batching capacity. */
+ * Necessary for the output (must be able to buffer any single message),
+ * desirable for the input for performance reasons.  We use 2x that size
+ * to improve batching capacity. */
 #define VCONN_BUFFER_SIZE \
     ((1 << (MEMBER_SIZEOF(struct ofp_header, length) * 8)) * 2)
 
@@ -58,14 +63,13 @@ struct vconn_stream
     int n_packets;
 
     /* Output. */
-    struct ofpbuf *txbuf;
+    struct byteq output;
+    uint8_t output_buffer[VCONN_BUFFER_SIZE];
 };
 
 static const struct vconn_class stream_vconn_class;
 
 static struct vlog_rate_limit rl = VLOG_RATE_LIMIT_INIT(10, 25);
-
-static void vconn_stream_clear_txbuf(struct vconn_stream *);
 
 static struct vconn *
 vconn_stream_new(struct stream *stream, int connect_status,
@@ -77,10 +81,13 @@ vconn_stream_new(struct stream *stream, int connect_status,
     vconn_init(&s->vconn, &stream_vconn_class, connect_status,
                stream_get_name(stream), allowed_versions);
     s->stream = stream;
+
     byteq_init(&s->input, s->input_buffer, sizeof s->input_buffer);
     s->rxbuf = NULL;
-    s->txbuf = NULL;
     s->n_packets = 0;
+
+    byteq_init(&s->output, s->output_buffer, sizeof s->output_buffer);
+
     return &s->vconn;
 }
 
@@ -125,7 +132,6 @@ vconn_stream_close(struct vconn *vconn)
     }
 
     stream_close(s->stream);
-    vconn_stream_clear_txbuf(s);
     ofpbuf_delete(s->rxbuf);
     free(s);
 }
@@ -214,21 +220,22 @@ vconn_stream_recv(struct vconn *vconn, struct ofpbuf **bufferp)
     return 0;
 }
 
-static void
-vconn_stream_clear_txbuf(struct vconn_stream *s)
-{
-    ofpbuf_delete(s->txbuf);
-    s->txbuf = NULL;
-}
-
 static int
 vconn_stream_send(struct vconn *vconn, struct ofpbuf *buffer)
 {
     struct vconn_stream *s = vconn_stream_cast(vconn);
     ssize_t retval;
 
-    if (s->txbuf) {
-        return EAGAIN;
+    /* If there is still data in the output buffer, add to the buffer. */
+    if (!byteq_is_empty(&s->output)) {
+        if (byteq_avail(&s->output) < buffer->size) {
+            COVERAGE_INC(vconn_buffer_full);
+            return EAGAIN;
+        }
+        byteq_putn(&s->output, buffer->data, buffer->size);
+        ofpbuf_delete(buffer);
+        COVERAGE_INC(vconn_buffered);
+        return 0;
     }
 
     retval = stream_send(s->stream, buffer->data, buffer->size);
@@ -236,10 +243,12 @@ vconn_stream_send(struct vconn *vconn, struct ofpbuf *buffer)
         ofpbuf_delete(buffer);
         return 0;
     } else if (retval >= 0 || retval == -EAGAIN) {
-        s->txbuf = buffer;
         if (retval > 0) {
             ofpbuf_pull(buffer, retval);
         }
+        byteq_fast_forward(&s->output);
+        byteq_putn(&s->output, buffer->data, buffer->size);
+        ofpbuf_delete(buffer);
         return 0;
     } else {
         return -retval;
@@ -253,23 +262,22 @@ vconn_stream_run(struct vconn *vconn)
     ssize_t retval;
 
     stream_run(s->stream);
-    if (!s->txbuf) {
-        return;
-    }
 
-    retval = stream_send(s->stream, s->txbuf->data, s->txbuf->size);
-    if (retval < 0) {
-        if (retval != -EAGAIN) {
-            VLOG_ERR_RL(&rl, "send: %s", ovs_strerror(-retval));
-            vconn_stream_clear_txbuf(s);
+    while (!byteq_is_empty(&s->output)) {
+        retval = stream_send(s->stream, byteq_tail(&s->output),
+                             byteq_tailroom(&s->output));
+        if (retval < 0) {
+            if (retval != -EAGAIN) {
+                VLOG_ERR_RL(&rl, "send: %s", ovs_strerror(-retval));
+                /* Clear the buffer, next send will surface the error. */
+                byteq_advance_tail(&s->output, byteq_used(&s->output));
+            }
             return;
         }
-    } else if (retval > 0) {
-        ofpbuf_pull(s->txbuf, retval);
-        if (!s->txbuf->size) {
-            vconn_stream_clear_txbuf(s);
-            return;
-        }
+        ovs_assert(retval != 0);
+        /* Consume what was sent. */
+        byteq_advance_tail(&s->output, retval);
+        COVERAGE_INC(vconn_buffer_sent);
     }
 }
 
@@ -279,7 +287,7 @@ vconn_stream_run_wait(struct vconn *vconn)
     struct vconn_stream *s = vconn_stream_cast(vconn);
 
     stream_run_wait(s->stream);
-    if (s->txbuf) {
+    if (!byteq_is_empty(&s->output)) {
         stream_send_wait(s->stream);
     }
 }
@@ -294,10 +302,10 @@ vconn_stream_wait(struct vconn *vconn, enum vconn_wait_type wait)
         break;
 
     case WAIT_SEND:
-        if (!s->txbuf) {
+        if (byteq_is_empty(&s->output)) {
             stream_send_wait(s->stream);
         } else {
-            /* Nothing to do: need to drain txbuf first.
+            /* Nothing to do: need to drain s->output first.
              * vconn_stream_run_wait() will arrange to wake up when there room
              * to send data, so there's no point in calling poll_fd_wait()
              * redundantly here. */
