@@ -21,10 +21,13 @@
 #include <string.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include "byteq.h"
+#include "coverage.h"
 #include "fatal-signal.h"
 #include "openvswitch/ofpbuf.h"
 #include "openflow/openflow.h"
 #include "openvswitch/poll-loop.h"
+#include "openvswitch/type-props.h"
 #include "socket-util.h"
 #include "stream.h"
 #include "util.h"
@@ -34,15 +37,28 @@
 
 VLOG_DEFINE_THIS_MODULE(vconn_stream);
 
+COVERAGE_DEFINE(vconn_buffer_recv);
+
 /* Active stream socket vconn. */
+
+/* Buffers must fit at least one OpenFlow message with maximum length.
+ * We use 2x that size to improve batching capacity. */
+#define VCONN_BUFFER_SIZE \
+    ((1 << (MEMBER_SIZEOF(struct ofp_header, length) * 8)) * 2)
 
 struct vconn_stream
 {
     struct vconn vconn;
     struct stream *stream;
+
+    /* Input. */
+    struct byteq input;
+    uint8_t input_buffer[VCONN_BUFFER_SIZE];
     struct ofpbuf *rxbuf;
-    struct ofpbuf *txbuf;
     int n_packets;
+
+    /* Output. */
+    struct ofpbuf *txbuf;
 };
 
 static const struct vconn_class stream_vconn_class;
@@ -61,8 +77,9 @@ vconn_stream_new(struct stream *stream, int connect_status,
     vconn_init(&s->vconn, &stream_vconn_class, connect_status,
                stream_get_name(stream), allowed_versions);
     s->stream = stream;
-    s->txbuf = NULL;
+    byteq_init(&s->input, s->input_buffer, sizeof s->input_buffer);
     s->rxbuf = NULL;
+    s->txbuf = NULL;
     s->n_packets = 0;
     return &s->vconn;
 }
@@ -123,24 +140,39 @@ vconn_stream_connect(struct vconn *vconn)
 static int
 vconn_stream_recv__(struct vconn_stream *s, int rx_len)
 {
-    struct ofpbuf *rx = s->rxbuf;
-    int want_bytes, retval;
+    size_t chunk, copy;
 
-    want_bytes = rx_len - rx->size;
-    ofpbuf_prealloc_tailroom(rx, want_bytes);
-    retval = stream_recv(s->stream, ofpbuf_tail(rx), want_bytes);
-    if (retval > 0) {
-        rx->size += retval;
-        return retval == want_bytes ? 0 : EAGAIN;
-    } else if (retval == 0) {
-        if (rx->size) {
+    /* Fill our input buffer if it's empty. */
+    if (byteq_is_empty(&s->input)) {
+        int retval;
+
+        byteq_fast_forward(&s->input);
+        chunk = byteq_headroom(&s->input);
+
+        retval = stream_recv(s->stream, byteq_head(&s->input), chunk);
+        if (retval < 0) {
+            return -retval;
+        } else if (retval == 0 && s->rxbuf->size) {
             VLOG_ERR_RL(&rl, "connection dropped mid-packet");
             return EPROTO;
+        } else if (retval == 0) {
+            return EOF;
         }
-        return EOF;
-    } else {
-        return -retval;
+        byteq_advance_head(&s->input, retval);
+        COVERAGE_INC(vconn_buffer_recv);
     }
+
+    /* Copy received data into rxbuf up to rx_len or until
+     * the end of the input data. */
+    copy = rx_len - s->rxbuf->size;
+    while (copy > 0 && !byteq_is_empty(&s->input)) {
+        chunk = MIN(byteq_tailroom(&s->input), copy);
+        ofpbuf_put(s->rxbuf, byteq_tail(&s->input), chunk);
+        byteq_advance_tail(&s->input, chunk);
+        copy -= chunk;
+    }
+
+    return s->rxbuf->size == rx_len ? 0 : EAGAIN;
 }
 
 static int
