@@ -55,6 +55,11 @@ freebsd_wait_firstboot 30 5
 freebsd_ssh "mkdir -p /root/ovs"
 freebsd_rsync_to "$(pwd)/" /root/ovs/
 
+freebsd_ssh "cd /root/ovs/.ci/ && \
+    clang -o aio-append aio-append.c && \
+    ./aio-append && ./aio-append && ./aio-append \
+    || { cat aio-test.out; exit 1; }"
+
 freebsd_ssh "cd /root/ovs && ./boot.sh && \
     ./configure CC=${CC} CFLAGS='-g -O2 -Wall' MAKE=gmake --enable-Werror"
 

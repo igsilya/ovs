@@ -62,6 +62,7 @@ EXTRA_DIST = \
 	MAINTAINERS.rst \
 	README.rst \
 	NOTICE \
+	.ci/aio-append.c \
 	.ci/dpdk-build.sh \
 	.ci/dpdk-prepare.sh \
 	.ci/freebsd-build.sh \
