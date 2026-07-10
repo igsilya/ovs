@@ -1,0 +1,56 @@
+name: Build Libreswan
+
+on:
+  workflow_call:
+    outputs:
+      libreswan_key:
+        description: Cache key for the Libreswan package
+        value: ${{ jobs.build-libreswan.outputs.key }}
+
+jobs:
+  build-libreswan:
+    env:
+      dependencies: build-essential fakeroot devscripts equivs
+      libreswan_ver: v5.1
+    name: libreswan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      key: ${{ steps.gen_key.outputs.key }}
+
+    steps:
+    - name: checkout Libreswan
+      uses: actions/checkout@v6
+      with:
+        repository: libreswan/libreswan
+        path: libreswan
+        ref: ${{ env.libreswan_ver }}
+
+    - name: generate cache key
+      id: gen_key
+      run: echo "key=libreswan-${{ env.libreswan_ver }}-ubuntu-24.04"
+                >> "$GITHUB_OUTPUT"
+
+    - name: cache
+      id: libreswan_cache
+      uses: actions/cache@v5
+      with:
+        path: libreswan-deb
+        key:  ${{ steps.gen_key.outputs.key }}
+
+    - name: update APT cache
+      if: steps.libreswan_cache.outputs.cache-hit != 'true'
+      run: sudo apt update || true
+    - name: install common dependencies
+      if: steps.libreswan_cache.outputs.cache-hit != 'true'
+      run: sudo apt install -y ${{ env.dependencies }}
+    - name: install build dependencies
+      if: steps.libreswan_cache.outputs.cache-hit != 'true'
+      run: mk-build-deps --install --root-cmd sudo
+                         libreswan/packaging/debian/control
+    - name: build
+      if: steps.libreswan_cache.outputs.cache-hit != 'true'
+      run: cd libreswan && make deb
+    - name: move the package to cache
+      if: steps.libreswan_cache.outputs.cache-hit != 'true'
+      run: mkdir -p libreswan-deb && mv libreswan_*.deb ./libreswan-deb

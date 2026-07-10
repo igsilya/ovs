@@ -1,6 +1,7 @@
 name: Build and Test
 
-on: [push, pull_request]
+on:
+  workflow_dispatch:
 
 env:
   python_default: 3.12

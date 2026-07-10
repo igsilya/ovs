@@ -1,0 +1,184 @@
+name: Kernel Testing
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'    # Sunday midnight UTC
+  workflow_dispatch:
+
+env:
+  python_default: 3.12
+
+jobs:
+  build-libreswan:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.repository == 'openvswitch/ovs'
+    uses: ./.github/workflows/build-libreswan.yml
+
+  kernel-test:
+    needs: build-libreswan
+    env:
+      dependencies: |
+        automake libtool gcc bc libjemalloc-dev libssl-dev \
+        libnuma-dev selinux-policy-dev libxdp-dev \
+        libunbound-dev libunwind-dev \
+        build-essential flex bison dwarves ccache \
+        libtraceevent-dev \
+        qemu-system-x86 virtiofsd \
+        iputils-arping ncat tcpdump net-tools \
+        iptables nftables
+    name: ${{ matrix.tree }} kernel tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - tree: net-next
+            repo: linux-netdev/testing
+          - tree: mainline
+            repo: torvalds/linux
+
+    steps:
+      - name: checkout OVS
+        uses: actions/checkout@v6
+        with:
+          path: ovs
+
+      - name: find latest net-next branch
+        if: matrix.tree == 'net-next'
+        id: kernel-branch
+        run: |
+          url=https://github.com/linux-netdev/testing.git
+          branch=$(git ls-remote --heads "$url" \
+            | awk -F/ '{print $NF}' \
+            | grep -E "^net-next-[0-9]{4}-" | sort | tail -1)
+
+          if [ -z "$branch" ]; then
+            echo "No net-next branch found"
+            exit 1
+          fi
+
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "Using kernel branch: $branch"
+
+      - name: checkout kernel
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ matrix.repo }}
+          ref: ${{ steps.kernel-branch.outputs.branch }}
+          path: kernel
+          fetch-depth: 1
+
+      - name: reset to net-next base
+        if: matrix.tree == 'net-next'
+        working-directory: kernel
+        env:
+          BRANCH: ${{ steps.kernel-branch.outputs.branch }}
+        run: |
+          # The linux-netdev/testing branches have nipa local
+          # patches and pending patches on top of net-next.
+          # Find the nipa merge commit and reset to its first
+          # parent to get pure net-next.  Incrementally deepen
+          # the shallow clone until we find it.
+          for i in $(seq 100); do
+            merge=$(git log --merges --format='%H %ce' \
+              | grep 'nipa@local' | head -1 | awk '{print $1}')
+            if [ -n "$merge" ]; then
+              echo "Found nipa merge: $merge"
+              git reset --hard "${merge}^1"
+              break
+            fi
+            base=$(git log --format='%H %ce' \
+              | grep -v 'nipa@local' | head -1 | awk '{print $1}')
+            if [ -n "$base" ]; then
+              echo "No nipa merge, using: $base"
+              git reset --hard "$base"
+              break
+            fi
+            echo "Deepening history ($i)..."
+            for attempt in 1 2 3; do
+              git fetch --deepen=50 origin "$BRANCH" && break
+              sleep 1
+            done
+          done
+          echo "Kernel HEAD: $(git log --oneline -1)"
+
+      - name: set up python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.python_default }}
+
+      - name: update APT cache
+        run:  sudo apt update || true
+      - name: install common dependencies
+        run:  sudo apt install -y ${{ env.dependencies }}
+      - name: set up ncat as default nc
+        run:  sudo update-alternatives --set nc /usr/bin/ncat
+
+      - name: enable KVM access
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: install virtme-ng
+        run: python3 -m pip install virtme-ng
+
+      - name: restore Libreswan cache
+        uses: actions/cache/restore@v5
+        with:
+          path: libreswan-deb
+          key: ${{ needs.build-libreswan.outputs.libreswan_key }}
+      - name: install Libreswan
+        run: sudo apt install -y ./libreswan-deb/libreswan_*.deb
+
+      - name: restore ccache
+        uses: actions/cache@v5
+        with:
+          path: ~/.ccache
+          key: kernel-ccache-${{ matrix.tree }}-${{ github.run_id }}
+          restore-keys: kernel-ccache-${{ matrix.tree }}-
+
+      - name: build OVS
+        working-directory: ovs
+        run: |
+          ./boot.sh
+          ./configure
+          make -j$(nproc) V=0
+
+      - name: set up Python venv
+        working-directory: ovs
+        run: |
+          python3 -m venv venv
+          ./venv/bin/python3 -m pip install -r python/test_requirements.txt
+          ./venv/bin/python3 -m pip install pyroute2
+
+      - name: run kernel tests
+        env:
+          CCACHE_DIR: ~/.ccache
+          CC: ccache gcc
+        run: |
+          sudo -E PATH=$PATH ovs/.ci/kernel-test.sh --verbose \
+            --kernel-dir $PWD/kernel --ovs-dir $PWD/ovs
+
+      - name: copy logs on failure
+        if: failure() || cancelled()
+        run: |
+          mkdir logs
+          sudo cp -r ovs/tests/system-kmod-testsuite.* ./logs/ || true
+          sudo cp kernel/selftest.log ./logs/ || true
+          sudo cp kernel/dmesg.log ./logs/ || true
+          sudo cp kernel/dmesg-errors-decoded.log ./logs/ || true
+          sudo cp kernel/build.log ./logs/ || true
+          sudo cp -r kernel/tools/testing/selftests/net/openvswitch/test_*/ \
+            ./logs/ || true
+          sudo tar -czf logs.tgz logs/
+
+      - name: upload logs on failure
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-logs-${{ matrix.tree }}
+          path: logs.tgz

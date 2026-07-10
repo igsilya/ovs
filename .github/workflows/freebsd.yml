@@ -1,6 +1,7 @@
 name: FreeBSD Build and Test
 
-on: [push, pull_request]
+on:
+  workflow_dispatch:
 
 env:
   FREEBSD_VER: "15.1"
