@@ -67,13 +67,17 @@ EXTRA_DIST = \
 	.ci/freebsd-build.sh \
 	.ci/freebsd-prepare-image.sh \
 	.ci/freebsd-vm.sh \
+	.ci/kernel-test.sh \
 	.ci/linux-build.sh \
 	.ci/linux-prepare.sh \
 	.ci/osx-build.sh \
 	.ci/osx-prepare.sh \
+	.ci/ovs.config \
 	.editorconfig \
 	.github/workflows/build-and-test.yml \
+	.github/workflows/build-libreswan.yml \
 	.github/workflows/freebsd.yml \
+	.github/workflows/kernel-testing.yml \
 	.readthedocs.yaml \
 	boot.sh \
 	$(MAN_FRAGMENTS) \
