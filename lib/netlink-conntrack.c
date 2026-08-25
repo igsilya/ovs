@@ -66,6 +66,9 @@ static struct vlog_rate_limit rl = VLOG_RATE_LIMIT_INIT(1, 5);
 #define CTA_MARK_MASK     (CTA_SECMARK + 4)
 #define CTA_LABELS        (CTA_SECMARK + 5)
 #define CTA_LABELS_MASK   (CTA_SECMARK + 6)
+#define CTA_FILTER        (CTA_SECMARK + 8)
+
+#define CTA_FILTER_ZONE   3
 
 #define CTA_TIMESTAMP_START 1
 #define CTA_TIMESTAMP_STOP  2
@@ -266,10 +269,17 @@ out:
     return err;
 }
 
+enum {
+    CT_FLUSH_ZONE_UNSUPPORTED,
+    CT_FLUSH_ZONE_CTA_ZONE,
+    CT_FLUSH_ZONE_CTA_FILTER,
+};
+
 static int
-nl_ct_flush_zone_with_cta_zone(uint16_t flush_zone)
+nl_ct_flush_zone_filtered(uint16_t flush_zone, int mode)
 {
     struct ofpbuf buf;
+    size_t offset;
     int err;
 
     ofpbuf_init(&buf, NL_DUMP_BUFSIZE);
@@ -278,6 +288,12 @@ nl_ct_flush_zone_with_cta_zone(uint16_t flush_zone)
                         IPCTNL_MSG_CT_DELETE, NLM_F_REQUEST);
     nl_msg_put_be16(&buf, CTA_ZONE, htons(flush_zone));
 
+    if (mode == CT_FLUSH_ZONE_CTA_FILTER) {
+        offset = nl_msg_start_nested_with_flag(&buf, CTA_FILTER);
+        nl_msg_put_flag(&buf, CTA_FILTER_ZONE);
+        nl_msg_end_nested(&buf, offset);
+    }
+
     err = nl_transact(NETLINK_NETFILTER, &buf, NULL);
     ofpbuf_uninit(&buf);
 
@@ -285,21 +301,56 @@ nl_ct_flush_zone_with_cta_zone(uint16_t flush_zone)
 }
 
 static bool
-netlink_flush_supports_zone(void)
+nl_ct_probe_cta_filter_zone(void)
+{
+    struct nl_dump dump;
+    struct ofpbuf buf, reply;
+    size_t offset;
+    int err;
+
+    ofpbuf_init(&buf, NL_DUMP_BUFSIZE);
+
+    nl_msg_put_nfgenmsg(&buf, 0, AF_UNSPEC, NFNL_SUBSYS_CTNETLINK,
+                        IPCTNL_MSG_CT_GET, NLM_F_REQUEST);
+    nl_msg_put_be16(&buf, CTA_ZONE, htons(0));
+
+    offset = nl_msg_start_nested_with_flag(&buf, CTA_FILTER);
+    nl_msg_put_flag(&buf, CTA_FILTER_ZONE);
+    nl_msg_end_nested(&buf, offset);
+
+    nl_dump_start(&dump, NETLINK_NETFILTER, &buf);
+    ofpbuf_clear(&buf);
+
+    while (nl_dump_next(&dump, &reply, &buf)) {
+        /* Nothing to do. */
+    }
+
+    err = nl_dump_done(&dump);
+    ofpbuf_uninit(&buf);
+
+    return err == 0 && (dump.nl_flags & NLM_F_DUMP_FILTERED);
+}
+
+static int
+netlink_flush_zone_mode(void)
 {
     static struct ovsthread_once once = OVSTHREAD_ONCE_INITIALIZER;
-    static bool supported = false;
+    static int mode = CT_FLUSH_ZONE_UNSUPPORTED;
 
     if (ovsthread_once_start(&once)) {
-        if (ovs_kernel_is_version_or_newer(6, 8)) {
-            supported = true;
+        if (nl_ct_probe_cta_filter_zone()) {
+            mode = CT_FLUSH_ZONE_CTA_FILTER;
+            VLOG_INFO("Conntrack flush by zone: using CTA_FILTER_ZONE.");
+        } else if (ovs_kernel_is_version_or_newer(6, 8)) {
+            mode = CT_FLUSH_ZONE_CTA_ZONE;
+            VLOG_INFO("Conntrack flush by zone: using CTA_ZONE.");
         } else {
-            VLOG_INFO("Disabling conntrack flush by zone. "
-                      "Not supported in Linux kernel.");
+            VLOG_INFO("Conntrack flush by zone: kernel support not detected, "
+                      "using slow dump and delete.");
         }
         ovsthread_once_done(&once);
     }
-    return supported;
+    return mode;
 }
 
 int
@@ -321,9 +372,11 @@ nl_ct_flush_zone(uint16_t flush_zone)
 
     struct nl_dump dump;
     struct ofpbuf buf, reply, delete;
+    int mode;
 
-    if (netlink_flush_supports_zone()) {
-        return nl_ct_flush_zone_with_cta_zone(flush_zone);
+    mode = netlink_flush_zone_mode();
+    if (mode != CT_FLUSH_ZONE_UNSUPPORTED) {
+        return nl_ct_flush_zone_filtered(flush_zone, mode);
     }
 
     ofpbuf_init(&buf, NL_DUMP_BUFSIZE);
