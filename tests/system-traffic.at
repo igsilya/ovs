@@ -2680,6 +2680,11 @@ table=20 actions=drop
 AT_CHECK([ovs-ofctl del-flows br0])
 AT_CHECK([ovs-ofctl --bundle add-flows br0 flows.txt])
 
+dnl Datapath flows installed before the OpenFlow rules were added, e.g., for
+dnl IPv6 traffic of the new interfaces, may drop the test packets until they
+dnl are revalidated, which happens asynchronously.
+AT_CHECK([ovs-appctl revalidator/purge])
+
 m4_define([ND_NS_PKT], [m4_join([,],
   [eth_src=36:b1:ee:7c:01:03,eth_dst=36:b1:ee:7c:01:02,eth_type=0x86dd],
   [ipv6_src=fe80::f816:3eff:fe04:6604,ipv6_dst=fe80::f816:3eff:fea7:dd0e],
@@ -2697,12 +2702,11 @@ NS_CHECK_EXEC([at_ns0], [$PYTHON3 $srcdir/sendpkt.py p0 \
     $(ovs-ofctl compose-packet --bare 'ND_NS_PKT,nd_target=2001::1:0:392')],
   [0], [ignore])
 
-AT_CHECK([ovs-appctl dpctl/dump-flows --names | strip_stats | strip_used | dnl
-          strip_key32 | strip_ptype | strip_eth | strip_recirc | dnl
-          grep ",nd" | sort], [0], [dnl
+OVS_WAIT_UNTIL_EQUAL([ovs-appctl dpctl/dump-flows --names | strip_stats | dnl
+          strip_used | strip_key32 | strip_ptype | strip_eth | dnl
+          strip_recirc | grep ",nd" | sort], [dnl
 recirc_id(<recirc>),in_port(ovs-p0),eth(src=36:b1:ee:7c:01:03,dst=36:b1:ee:7c:01:02),eth_type(0x86dd),ipv6(proto=58,frag=no),icmpv6(type=136),nd(target=2001::1:0:392), packets:0, bytes:0, used:never, actions:br0,ovs-p1
-recirc_id(<recirc>),in_port(ovs-p0),eth_type(0x86dd),ipv6(proto=58,frag=no),icmpv6(type=136),nd(target=3000::1), packets:0, bytes:0, used:never, actions:drop
-])
+recirc_id(<recirc>),in_port(ovs-p0),eth_type(0x86dd),ipv6(proto=58,frag=no),icmpv6(type=136),nd(target=3000::1), packets:0, bytes:0, used:never, actions:drop])
 
 OVS_WAIT_UNTIL([ovs-appctl dpctl/dump-flows | grep ",nd" | wc -l | grep -E ^0])
 
@@ -2716,12 +2720,11 @@ NS_CHECK_EXEC([at_ns0], [$PYTHON3 $srcdir/sendpkt.py p0 \
     $(ovs-ofctl compose-packet --bare 'ND_NS_PKT,nd_target=3000::1')],
   [0], [ignore])
 
-AT_CHECK([ovs-appctl dpctl/dump-flows --names | strip_stats | strip_used | dnl
-          strip_key32 | strip_ptype | strip_eth | strip_recirc | dnl
-          grep ",nd" | sort], [0], [dnl
+OVS_WAIT_UNTIL_EQUAL([ovs-appctl dpctl/dump-flows --names | strip_stats | dnl
+          strip_used | strip_key32 | strip_ptype | strip_eth | dnl
+          strip_recirc | grep ",nd" | sort], [dnl
 recirc_id(<recirc>),in_port(ovs-p0),eth(src=36:b1:ee:7c:01:03,dst=36:b1:ee:7c:01:02),eth_type(0x86dd),ipv6(proto=58,frag=no),icmpv6(type=136),nd(target=2001::1:0:392), packets:0, bytes:0, used:never, actions:br0,ovs-p1
-recirc_id(<recirc>),in_port(ovs-p0),eth_type(0x86dd),ipv6(proto=58,frag=no),icmpv6(type=136),nd(target=3000::1), packets:0, bytes:0, used:never, actions:drop
-])
+recirc_id(<recirc>),in_port(ovs-p0),eth_type(0x86dd),ipv6(proto=58,frag=no),icmpv6(type=136),nd(target=3000::1), packets:0, bytes:0, used:never, actions:drop])
 
 OVS_TRAFFIC_VSWITCHD_STOP
 AT_CLEANUP
