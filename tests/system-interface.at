@@ -214,9 +214,7 @@ AT_CHECK([ip link set dev tap0 down])
 AT_CHECK([ethtool -s tap0 duplex half])
 AT_CHECK([ip link set dev tap0 up])
 
-AT_CHECK([ovs-vsctl get interface tap0 duplex], [0], [dnl
-half
-])
+OVS_WAIT_UNTIL_EQUAL([ovs-vsctl get interface tap0 duplex], [half])
 
 OVS_TRAFFIC_VSWITCHD_STOP
 AT_CLEANUP
