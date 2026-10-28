@@ -218,11 +218,28 @@ DISTCLEANFILES += tests/atconfig tests/atlocal
 
 AUTOTEST_PATH = utilities:vswitchd:ovsdb:vtep:tests:ipsec:$(SSL_DIR)
 
+# Runs pytest-based tests.  Extra pytest arguments can be given in
+# PYTESTFLAGS, e.g., PYTESTFLAGS='-n8 -k ofproto'.  RECHECK=yes reruns failed
+# tests.  Exits with status 77 if pytest is not available.
+PYTEST_RUN = \
+	AUTOTEST_PATH='$(AUTOTEST_PATH)' \
+	abs_top_srcdir='$(abs_top_srcdir)' \
+	abs_top_builddir='$(abs_top_builddir)' \
+	$(PYTHON3) '$(srcdir)/tests/run-pytest.py' \
+	    --pytestflags='$(subst ','\'',$(PYTESTFLAGS))' \
+	    --recheck='$(RECHECK)' \
+	    --cache-dir='$(abs_top_builddir)/tests/.pytest_cache'
+
 check-local:
 	set $(SHELL) '$(TESTSUITE)' -C tests AUTOTEST_PATH=$(AUTOTEST_PATH); \
 	"$$@" $(TESTSUITEFLAGS) || \
 	(test -z "$$(find $(TESTSUITE_DIR) -name 'sanitizers.*')" && \
 	 test X'$(RECHECK)' = Xyes && "$$@" --recheck)
+	$(PYTEST_RUN) --basetemp='$(abs_top_builddir)/tests/pytest.dir' \
+	    '$(abs_top_srcdir)/tests/unit'; \
+	rc=$$?; \
+	if test $$rc -eq 77; then echo "Skipping pytest-based tests."; rc=0; fi; \
+	exit $$rc
 
 # Python Coverage support.
 # Requires coverage.py http://nedbatchelder.com/code/coverage/.
@@ -554,6 +571,25 @@ EXTRA_DIST += $(CHECK_PYFILES)
 PYCOV_CLEAN_FILES += $(CHECK_PYFILES:.py=.py,cover) .coverage
 
 FLAKE8_PYFILES += $(CHECK_PYFILES)
+
+# pytest-based tests and their infrastructure.
+PYTEST_PYFILES = \
+	tests/__init__.py \
+	tests/lib/__init__.py \
+	tests/lib/cmd.py \
+	tests/lib/env.py \
+	tests/run-pytest.py \
+	tests/unit/__init__.py \
+	tests/unit/conftest.py \
+	tests/unit/test_cmd.py
+
+EXTRA_DIST += $(PYTEST_PYFILES) tests/pytest.ini
+PYCOV_CLEAN_FILES += $(PYTEST_PYFILES:.py=.py,cover)
+FLAKE8_PYFILES += $(PYTEST_PYFILES)
+
+CLEAN_LOCAL += clean-pytest
+clean-pytest:
+	rm -rf tests/pytest.dir tests/pytest.dir.recheck tests/.pytest_cache
 
 if HAVE_OPENSSL
 TESTPKI_FILES = \
