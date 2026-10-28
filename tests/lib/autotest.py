@@ -49,6 +49,7 @@ _SERVER_LOOP = r"""
 # Test bodies are pre-extracted into files in $at_server, named by number.
 if test -n "$at_server"; then
   exec 6<&0 </dev/null
+@SETUP@
   echo "@AT_SERVER@ ready"
   while read at_group <&6; do
     case $at_group in
@@ -111,7 +112,7 @@ def list_tests(testsuite, rundir, flags=()):
     return tests
 
 
-def make_server_script(testsuite, path):
+def make_server_script(testsuite, path, setup=""):
     """Prepare a server copy of ``testsuite`` at ``path``.
 
     Writes a copy of the testsuite with the server loop, and the bodies
@@ -119,6 +120,9 @@ def make_server_script(testsuite, path):
     by test number.  A test body is what Autotest itself extracts from the
     testsuite before running a test: everything between the '#AT_START_N'
     and '#AT_STOP_N' lines.
+
+    ``setup`` is shell code to run in the server before the first test.
+    Shell functions defined there are available to the tests.
     """
     # The testsuite is not necessarily valid UTF-8, it contains test data.
     with open(testsuite, "rb") as f:
@@ -147,7 +151,8 @@ def make_server_script(testsuite, path):
         raise AutotestError("%s: no '%s' found, unsupported Autotest version"
                             % (testsuite, _DRIVER_LOOP_BOX))
 
-    lines.insert(loop_index, _SERVER_LOOP.encode())
+    loop = _SERVER_LOOP.replace("@SETUP@", setup or "  :")
+    lines.insert(loop_index, loop.encode())
     with open(path + ".tmp", "wb") as f:
         f.writelines(lines)
     os.chmod(path + ".tmp", 0o755)
@@ -158,15 +163,21 @@ def make_server_script(testsuite, path):
 class AutotestServer:
     """A running Autotest testsuite that executes tests on request.
 
+    The server process is started on creation.  It can also be stopped
+    and started again with ``stop()`` and ``start()``, e.g., to run tests
+    in different network namespaces, without preparing the server script
+    again.
+
     Args:
         testsuite: Path to the generated testsuite script.
         rundir: Directory with atconfig and atlocal.  The server script,
             its log and its directory are created there.
         name: Name for the server script, e.g., 'testsuite.gw0'.
         flags: Additional Autotest flags.
+        setup: Shell code to run in the server before the first test.
     """
 
-    def __init__(self, testsuite, rundir, name, flags=()):
+    def __init__(self, testsuite, rundir, name, flags=(), setup=""):
         self.rundir = rundir = os.path.abspath(rundir)
         self.name = name
         self.script = os.path.join(rundir, name)
@@ -175,23 +186,47 @@ class AutotestServer:
         self.failed = False
 
         self.bodies_dir = make_server_script(os.path.abspath(testsuite),
-                                             self.script)
-        cmd = ["/bin/sh", self.script, "-C", rundir,
-               "at_server=" + self.bodies_dir]
+                                             self.script, setup)
+        self._cmd = ["/bin/sh", self.script, "-C", rundir,
+                     "at_server=" + self.bodies_dir]
         if os.environ.get("AUTOTEST_PATH"):
-            cmd.append("AUTOTEST_PATH=" + os.environ["AUTOTEST_PATH"])
-        cmd += list(flags)
+            self._cmd.append("AUTOTEST_PATH=" + os.environ["AUTOTEST_PATH"])
+        self._cmd += list(flags)
         # The server runs tests from self.bodies_dir.  Select a single test,
         # so Autotest doesn't prepare for running all of them (scanning the
         # whole script for test boundaries, keeping them in variables,
         # creating helper directories), it would only slow things down.
-        cmd.append("1")
-        log_line("$ " + " ".join(cmd))
+        self._cmd.append("1")
+        self._proc = None
         self.check_line = None
-        self._proc = subprocess.Popen(cmd, stdin=subprocess.PIPE,
+        self.start()
+
+    def start(self):
+        """Start the server process, if it is not running."""
+        if self.alive():
+            return
+        log_line("$ " + " ".join(self._cmd))
+        self._proc = subprocess.Popen(self._cmd, stdin=subprocess.PIPE,
                                       stdout=subprocess.PIPE,
                                       universal_newlines=True)
         self._read_until(_MARKER + " ready")
+
+    def stop(self):
+        """Stop the server process."""
+        if self._proc is None:
+            return
+        if self._proc.poll() is None:
+            try:
+                self._proc.stdin.close()
+            except OSError:
+                pass
+            try:
+                self._proc.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                self._proc.kill()
+                self._proc.wait()
+        self._proc.stdout.close()
+        self._proc = None
 
     def _read_until(self, prefix):
         """Read the server output until a line starting with ``prefix``."""
@@ -206,7 +241,7 @@ class AutotestServer:
                 return line.rstrip("\n")
 
     def alive(self):
-        return self._proc.poll() is None
+        return self._proc is not None and self._proc.poll() is None
 
     def run(self, number):
         """Run test ``number``.
@@ -231,23 +266,12 @@ class AutotestServer:
         return result, group_dir
 
     def close(self, keep=False):
-        """Stop the server.
+        """Stop the server and clean up.
 
         Removes the server script, and also the log and the directory of
         the testsuite if no test failed and ``keep`` is False.
         """
-        if self._proc.poll() is None:
-            try:
-                self._proc.stdin.close()
-            except OSError:
-                pass
-            try:
-                self._proc.wait(timeout=30)
-            except subprocess.TimeoutExpired:
-                self._proc.kill()
-                self._proc.wait()
-        self._proc.stdout.close()
-
+        self.stop()
         os.unlink(self.script)
         shutil.rmtree(self.bodies_dir, ignore_errors=True)
         if not keep and not self.failed:
@@ -283,11 +307,22 @@ class AutotestSuite:
     Args:
         testsuite: Path to the generated testsuite script.
         rundir: Directory with atconfig and atlocal.
+        marks: pytest marks for all the tests.
+        setup: Shell code to run in the testsuite before the first test,
+            see ``AutotestServer``.
+        process_per_test: Run every test in a new testsuite process,
+            started from the test.  Needed if tests run in different
+            environments, e.g., network namespaces.  Otherwise, a single
+            process runs all the tests of a pytest worker.
     """
 
-    def __init__(self, testsuite, rundir):
+    def __init__(self, testsuite, rundir, marks=(), setup="",
+                 process_per_test=False):
         self.testsuite = testsuite
         self.rundir = rundir
+        self.marks = list(marks)
+        self.setup = setup
+        self.process_per_test = process_per_test
         self._tests = None
 
     def available(self):
@@ -304,14 +339,18 @@ class AutotestSuite:
                     self._tests[number] = (location, name)
         return self._tests
 
-    def parametrize(self, fn):
-        """Decorator that parametrizes a test with the Autotest tests."""
+    def params(self):
+        """Return a list of pytest.param objects for the tests."""
         params = []
         for number, (location, name) in sorted(self.tests().items()):
             safe_name = re.sub(r"[^A-Za-z0-9_.=+-]+", "_", name).strip("_")
-            params.append(pytest.param(number,
+            params.append(pytest.param(number, marks=self.marks,
                                        id="%04d-%s" % (number, safe_name)))
-        return pytest.mark.parametrize("number", params)(fn)
+        return params
+
+    def parametrize(self, fn):
+        """Decorator that parametrizes a test with the Autotest tests."""
+        return pytest.mark.parametrize("number", self.params())(fn)
 
     def runner(self, request):
         """Generator for a session-scoped fixture that runs the tests."""
@@ -353,13 +392,25 @@ class _Runner:
         self.failed = False
 
     def run(self, number):
+        if self.suite.process_per_test:
+            if self.server is None:
+                self.server = AutotestServer(self.suite.testsuite,
+                                             self.suite.rundir, self.name,
+                                             self.flags, self.suite.setup)
+            else:
+                self.server.start()
+            try:
+                return self.server.run(number)
+            finally:
+                self.server.stop()
+
         if self.server is None or not self.server.alive():
             if self.server is not None:
                 self.failed = True
                 self.server.close(keep=True)
             self.server = AutotestServer(self.suite.testsuite,
                                          self.suite.rundir, self.name,
-                                         self.flags)
+                                         self.flags, self.suite.setup)
         return self.server.run(number)
 
     def close(self):

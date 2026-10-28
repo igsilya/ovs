@@ -148,6 +148,7 @@ jobs:
       STD:         ${{ matrix.std }}
       TESTSUITE:   ${{ matrix.testsuite }}
       TEST_RANGE:  ${{ matrix.test_range }}
+      TEST_SELECTION: ${{ matrix.test_selection }}
 
     name: linux ${{ join(matrix.*, ' ') }}
     runs-on: ubuntu-26.04
@@ -228,25 +229,31 @@ jobs:
           - compiler:     gcc
             testsuite:    check-kernel
             test_range:   "-100"
+            test_selection: "not test_autotest or test_autotest[00"
           - compiler:     gcc
             testsuite:    check-kernel
             test_range:   "100-"
+            test_selection: "test_autotest and not test_autotest[00"
 
           - compiler:     clang
             sanitizers:   address,undefined
             testsuite:    check-kernel
             test_range:   "-100"
+            test_selection: "not test_autotest or test_autotest[00"
           - compiler:     clang
             sanitizers:   address,undefined
             testsuite:    check-kernel
             test_range:   "100-"
+            test_selection: "test_autotest and not test_autotest[00"
 
           - compiler:     gcc
             testsuite:    check-offloads
             test_range:   "-100"
+            test_selection: "not test_autotest or test_autotest[00"
           - compiler:     gcc
             testsuite:    check-offloads
             test_range:   "100-"
+            test_selection: "test_autotest and not test_autotest[00"
 
           - compiler:     gcc
             dpdk:         dpdk

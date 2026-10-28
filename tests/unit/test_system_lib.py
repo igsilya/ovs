@@ -131,3 +131,25 @@ class TestFeatures:
 
     def test_no_markers(self):
         assert check_requirements(FakeItem(), KERNEL) is None
+
+
+def test_testsuite_names():
+    from tests.system.test_autotest import autotest_suite_name
+
+    def dp(datapath, **kwargs):
+        args = dict(offload=False, tso=False, afxdp=False, dpdk=False)
+        args.update(kwargs)
+        return DatapathConfig(datapath, **args)
+
+    assert autotest_suite_name(dp("system")) == "system-kmod-testsuite"
+    assert autotest_suite_name(dp("system", offload=True)) \
+        == "system-offloads-testsuite"
+    assert autotest_suite_name(dp("userspace")) == "system-userspace-testsuite"
+    assert autotest_suite_name(dp("userspace", tso=True)) \
+        == "system-tso-testsuite"
+    assert autotest_suite_name(dp("userspace", afxdp=True)) \
+        == "system-afxdp-testsuite"
+    assert autotest_suite_name(dp("userspace", dpdk=True)) \
+        == "system-dpdk-testsuite"
+    assert autotest_suite_name(dp("userspace", dpdk=True, offload=True)) \
+        == "system-dpdk-offloads-testsuite"

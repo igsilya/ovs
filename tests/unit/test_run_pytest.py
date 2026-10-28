@@ -74,3 +74,15 @@ def test_sanitizer_reports(rp, tmp_path):
     assert sorted(os.path.basename(r) for r in
                   rp.sanitizer_reports(str(basetemp))) \
         == ["sanitizers.2", "sanitizers.3"]
+
+
+@pytest.mark.parametrize("version, args, expected", [
+    ((3, 8), ["-n8"], ["--dist=loadgroup"]),
+    ((2, 5), ["-n", "4"], ["--dist=loadgroup"]),
+    ((2, 4), ["-n8"], []),
+    ((3, 8), ["-n8", "--dist=load"], []),
+    ((3, 8), [], []),
+])
+def test_xdist_args_loadgroup(rp, monkeypatch, version, args, expected):
+    monkeypatch.setattr(rp, "module_version", lambda name: version)
+    assert rp.xdist_args(args, loadgroup=True) == expected

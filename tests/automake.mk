@@ -380,33 +380,42 @@ check-ryu: all
 EXTRA_DIST += tests/run-ryu
 
 # Run kmod tests. Assume kernel modules has been installed or linked into the kernel
+# System tests run through pytest (tests/system), together with the Autotest
+# system testsuite for the selected datapath configuration.  If pytest is not
+# available, the Autotest testsuite runs directly, as before.
+#
+# $(call PYTEST_SYSTEM_CHECK,<autotest testsuite>,<pytest arguments>)
+PYTEST_SYSTEM_CHECK = \
+	$(PYTEST_RUN) \
+	    --basetemp='$(abs_top_builddir)/tests/pytest.dir' \
+	    '$(abs_top_srcdir)/tests/system' $(2); \
+	rc=$$?; \
+	if test $$rc -ne 77; then exit $$rc; fi; \
+	echo "Running the Autotest testsuite without pytest."; \
+	set $(SHELL) '$(1)' -C tests AUTOTEST_PATH='$(AUTOTEST_PATH)'; \
+	"$$@" $(TESTSUITEFLAGS) -j1 || \
+	(test X'$(RECHECK)' = Xyes && "$$@" --recheck)
+
 check-kernel: all
-	set $(SHELL) '$(SYSTEM_KMOD_TESTSUITE)' -C tests  AUTOTEST_PATH='$(AUTOTEST_PATH)'; \
-	"$$@" $(TESTSUITEFLAGS) -j1 || (test X'$(RECHECK)' = Xyes && "$$@" --recheck)
+	$(call PYTEST_SYSTEM_CHECK,$(SYSTEM_KMOD_TESTSUITE),--datapath=system)
 
 check-system-userspace: all
-	set $(SHELL) '$(SYSTEM_USERSPACE_TESTSUITE)' -C tests  AUTOTEST_PATH='$(AUTOTEST_PATH)'; \
-	"$$@" $(TESTSUITEFLAGS) -j1 || (test X'$(RECHECK)' = Xyes && "$$@" --recheck)
+	$(call PYTEST_SYSTEM_CHECK,$(SYSTEM_USERSPACE_TESTSUITE),--datapath=userspace)
 
 check-system-tso: all
-	set $(SHELL) '$(SYSTEM_TSO_TESTSUITE)' -C tests  AUTOTEST_PATH='$(AUTOTEST_PATH)'; \
-	"$$@" $(TESTSUITEFLAGS) -j1 || (test X'$(RECHECK)' = Xyes && "$$@" --recheck)
+	$(call PYTEST_SYSTEM_CHECK,$(SYSTEM_TSO_TESTSUITE),--datapath=userspace --tso)
 
 check-afxdp: all
-	set $(SHELL) '$(SYSTEM_AFXDP_TESTSUITE)' -C tests  AUTOTEST_PATH='$(AUTOTEST_PATH)' $(TESTSUITEFLAGS) -j1; \
-	"$$@" || (test X'$(RECHECK)' = Xyes && "$$@" --recheck)
+	$(call PYTEST_SYSTEM_CHECK,$(SYSTEM_AFXDP_TESTSUITE),--datapath=userspace --afxdp)
 
 check-offloads: all
-	set $(SHELL) '$(SYSTEM_OFFLOADS_TESTSUITE)' -C tests  AUTOTEST_PATH='$(AUTOTEST_PATH)'; \
-	"$$@" $(TESTSUITEFLAGS) -j1 || (test X'$(RECHECK)' = Xyes && "$$@" --recheck)
+	$(call PYTEST_SYSTEM_CHECK,$(SYSTEM_OFFLOADS_TESTSUITE),--datapath=system --offload)
 
 check-dpdk-offloads: all
-	set $(SHELL) '$(SYSTEM_DPDK_OFFLOADS_TESTSUITE)' -C tests  AUTOTEST_PATH='$(AUTOTEST_PATH)'; \
-	"$$@" $(TESTSUITEFLAGS) -j1 || (test X'$(RECHECK)' = Xyes && "$$@" --recheck)
+	$(call PYTEST_SYSTEM_CHECK,$(SYSTEM_DPDK_OFFLOADS_TESTSUITE),--loadgroup --datapath=userspace --dpdk --offload)
 
 check-dpdk: all
-	set $(SHELL) '$(SYSTEM_DPDK_TESTSUITE)' -C tests  AUTOTEST_PATH='$(AUTOTEST_PATH)'; \
-	"$$@" $(TESTSUITEFLAGS) -j1 || (test X'$(RECHECK)' = Xyes && "$$@" --recheck)
+	$(call PYTEST_SYSTEM_CHECK,$(SYSTEM_DPDK_TESTSUITE),--loadgroup --datapath=userspace --dpdk)
 
 clean-local:
 	test ! -f '$(TESTSUITE)' || $(SHELL) '$(TESTSUITE)' -C tests --clean
@@ -596,14 +605,18 @@ PYTEST_PYFILES = \
 	tests/lib/report.py \
 	tests/run-pytest.py \
 	tests/system/__init__.py \
+	tests/system/conftest.py \
 	tests/system/lib/__init__.py \
 	tests/system/lib/conntrack.py \
 	tests/system/lib/features.py \
 	tests/system/lib/flows.py \
 	tests/system/lib/l7.py \
 	tests/system/lib/netns.py \
+	tests/system/lib/options.py \
 	tests/system/lib/ovs.py \
 	tests/system/lib/ping.py \
+	tests/system/test_autotest.py \
+	tests/system/test_infra.py \
 	tests/unit/__init__.py \
 	tests/unit/conftest.py \
 	tests/unit/test_autotest.py \

@@ -23,7 +23,8 @@ If tests run in parallel ('-n' in PYTESTFLAGS) and pytest-xdist supports it,
 tests are sent to workers one by one ('--maxschedchunk=1'), unless the
 distribution is configured in PYTESTFLAGS.  By default, pytest-xdist sends
 chunks of consecutive tests to each worker, which is not good for the
-Autotest tests: long tests are often next to each other.
+Autotest tests: long tests are often next to each other.  With --loadgroup,
+'--dist=loadgroup' is used instead, for tests that must run on one worker.
 
 Exits with status 77 if a usable pytest is not available, so the caller
 can fall back to a plain Autotest run.
@@ -77,12 +78,14 @@ def has_option(args, *names):
     return False
 
 
-def xdist_args(user_args):
+def xdist_args(user_args, loadgroup=False):
     """Return default pytest-xdist arguments for ``user_args``."""
     if not has_option(user_args, "-n", "--numprocesses") \
             or has_option(user_args, "--dist", "--maxschedchunk", "-d"):
         return []
     version = module_version("xdist")
+    if loadgroup:
+        return ["--dist=loadgroup"] if version and version >= (2, 5) else []
     if version is None or version < (3, 4):
         return []
     return ["--maxschedchunk=1"]
@@ -113,7 +116,8 @@ def remove_autotest_artifacts(rundir):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0],
+                                     allow_abbrev=False)
     parser.add_argument("--pytestflags", default="",
                         help="Extra pytest flags (PYTESTFLAGS).")
     parser.add_argument("--recheck", default="",
@@ -122,9 +126,10 @@ def main():
                         help="Directory for test artifacts.")
     parser.add_argument("--cache-dir", required=True,
                         help="pytest cache directory.")
-    parser.add_argument("args", nargs="*",
-                        help="Test paths and other pytest arguments.")
-    opts = parser.parse_args()
+    parser.add_argument("--loadgroup", action="store_true",
+                        help="Use '--dist=loadgroup' for parallel runs.")
+    # Other arguments, e.g., test paths, are passed to pytest.
+    opts, pytest_args = parser.parse_known_args()
 
     pytest_version = module_version("pytest")
     if pytest_version is None:
@@ -139,9 +144,9 @@ def main():
     args = [sys.executable, "-m", "pytest",
             "--basetemp=" + opts.basetemp,
             "-o", "cache_dir=" + opts.cache_dir]
-    args += opts.args
+    args += pytest_args
     user_args = shlex.split(opts.pytestflags)
-    args += xdist_args(user_args) + user_args
+    args += xdist_args(user_args, opts.loadgroup) + user_args
 
     remove_autotest_artifacts(os.path.dirname(opts.basetemp))
 

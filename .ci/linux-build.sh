@@ -186,10 +186,15 @@ else
             [ "$(cat /proc/sys/vm/nr_hugepages)" = '1024' ]
             export DPDK_EAL_OPTIONS="--lcores 0@1,1@1,2@1"
         fi
-        # PYTESTFLAGS is for testsuites that run through pytest ('check'),
-        # TESTSUITEFLAGS for the ones that run Autotest directly.
+        # Testsuites run through pytest.  TEST_SELECTION splits a testsuite
+        # into parts, TEST_RANGE does the same for the Autotest testsuite
+        # in case it runs without pytest.
+        pytestflags="-n${NPROC}"
+        if [ -n "$TEST_SELECTION" ]; then
+            pytestflags="${pytestflags} -k '${TEST_SELECTION}'"
+        fi
         $run_as_root make $testsuite TESTSUITEFLAGS="${JOBS} ${TEST_RANGE}" \
-                                     PYTESTFLAGS="-n${NPROC}" RECHECK=yes
+                                     PYTESTFLAGS="${pytestflags}" RECHECK=yes
     done
 fi
 

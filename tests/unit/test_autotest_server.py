@@ -178,3 +178,21 @@ def test_check_line(testsuite, rundir):
     assert server.run(2)[0] == "fail"
     assert server.check_line == "testsuite.at:14"
     server.close()
+
+
+def test_server_restart(testsuite, rundir):
+    server = AutotestServer(testsuite, rundir, "testsuite.pytest")
+    assert server.run(1)[0] == "pass"
+    server.stop()
+    assert not server.alive()
+    assert os.path.exists(server.script)
+    server.start()
+    assert server.alive()
+    assert server.run(2)[0] == "fail"
+    server.stop()
+    server.start()
+    assert server.run(7)[0] == "pass"
+    server.close()
+    assert not os.path.exists(server.script)
+    # The failed test is preserved.
+    assert os.path.exists(os.path.join(server.suite_dir, "2"))

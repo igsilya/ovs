@@ -14,15 +14,20 @@
 
 """Common pytest configuration for all OVS tests."""
 
-from tests.lib import env
+from tests.lib import env, report
 from tests.lib.report import (  # noqa: F401
-    pytest_addoption,
     pytest_runtest_makereport,
     pytest_runtest_teardown,
     test_dir,
 )
+from tests.system.lib import options as system_options
 
 pytest_plugins = ("pytester",)
+
+
+def pytest_addoption(parser):
+    report.pytest_addoption(parser)
+    system_options.add_options(parser)
 
 
 def pytest_configure(config):
