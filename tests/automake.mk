@@ -598,6 +598,7 @@ PYTEST_PYFILES = \
 	tests/system/__init__.py \
 	tests/system/lib/__init__.py \
 	tests/system/lib/netns.py \
+	tests/system/lib/ovs.py \
 	tests/unit/__init__.py \
 	tests/unit/conftest.py \
 	tests/unit/test_autotest.py \
