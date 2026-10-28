@@ -2615,6 +2615,9 @@ dnl Reinitialize.
 AT_CHECK([ovs-vsctl del-port ovs-p1])
 AT_CHECK([ovs-vsctl add-port br0 ovs-p1])
 
+dnl Wait for the re-added port to forward traffic.
+OVS_WAIT_UNTIL([NS_EXEC([at_ns0], [ping -q -c 1 -W 1 10.1.1.2])])
+
 NS_CHECK_EXEC([at_ns0], [ping -s 3200 -q -c 3 -i 0.3 -W 2 10.1.1.2 | FORMAT_PING], [0], [dnl
 3 packets transmitted, 3 received, 0% packet loss, time 0ms
 ])
@@ -2625,6 +2628,8 @@ NS_CHECK_EXEC([at_ns1], [ping -s 3200 -q -c 3 -i 0.3 -W 2 10.1.1.1 | FORMAT_PING
 
 NETNS_DAEMONIZE([at_ns0], [nc -l 1234 > data_0], [nc1.pid])
 NETNS_DAEMONIZE([at_ns1], [nc -l 1234 > data_1], [nc2.pid])
+OVS_WAIT_UNTIL([NS_EXEC([at_ns0], [netstat -ln | grep :1234])])
+OVS_WAIT_UNTIL([NS_EXEC([at_ns1], [netstat -ln | grep :1234])])
 
 AT_CHECK([dd if=/dev/urandom of=payload.bin bs=60000 count=1 2> /dev/null])
 on_exit 'rm -f payload.bin'
@@ -2638,7 +2643,8 @@ OVS_WAIT_WHILE([kill -0 $(cat nc1.pid) $(cat nc2.pid)])
 AT_CHECK([diff -q payload.bin data_0], [0])
 AT_CHECK([diff -q payload.bin data_1], [0])
 
-OVS_TRAFFIC_VSWITCHD_STOP
+dnl Packets may arrive while the port is being re-added.
+OVS_TRAFFIC_VSWITCHD_STOP(["/received packet on unknown port/d"])
 AT_CLEANUP
 
 AT_SETUP([datapath - Neighbor Discovery with loose match])
