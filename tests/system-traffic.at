@@ -9366,6 +9366,7 @@ NS_CHECK_EXEC([at_ns0], [ip route add default nexthop via 10.1.1.254])
 NS_CHECK_EXEC([at_ns1], [ip route add default nexthop via 10.1.1.254])
 
 NETNS_DAEMONIZE([at_ns0], [nc -l -k 1234 > /dev/null], [nc0.pid])
+OVS_WAIT_UNTIL([NS_EXEC([at_ns0], [netstat -ln | grep :1234])])
 
 AT_DATA([flows.txt], [dnl
 table=0,priority=10  ip action=ct(table=1)
