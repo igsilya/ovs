@@ -27,11 +27,12 @@ import sys
 
 import pytest
 
-from tests.lib import report
+from tests.lib import env, report
 from tests.lib.modules import KernelModules
 from tests.system.lib.features import check_requirements, datapath_config
 from tests.system.lib.netns import IsolatedNetNS
 from tests.system.lib.ovs import OVSNodeSystem, OVSNodeUserspace
+from tests.system.lib.pmd import busy_polling, cpu_slots, pmd_environment
 
 # Kernel modules loaded for the whole session: (name, required).
 _SYSTEM_MODULES = [
@@ -142,6 +143,7 @@ def ovs(request, test_dir, isolated_ns):
     if reason:
         pytest.skip(reason)
 
+    cpus = None
     if dp.datapath == "system":
         node = OVSNodeSystem(test_dir, offload=dp.offload)
         # Same as CHECK_CONNTRACK, may fail if conntrack is not loaded.
@@ -150,11 +152,22 @@ def ovs(request, test_dir, isolated_ns):
     else:
         if dp.dpdk:
             pytest.skip("DPDK is not supported by pytest-based tests yet")
-        node = OVSNodeUserspace(test_dir, tso=dp.tso, afxdp=dp.afxdp)
+        mask = None
+        if busy_polling(dp):
+            # A CPU of its own for the PMD threads, see tests.system.lib.pmd.
+            cpus = cpu_slots(os.path.join(env.builddir(), "tests", ".slots",
+                                          "cpus")).acquire()
+            mask = pmd_environment(cpus)["OVS_PMD_CPU_MASK"]
+        node = OVSNodeUserspace(test_dir, tso=dp.tso, afxdp=dp.afxdp,
+                                pmd_cpu_mask=mask)
 
-    with node:
-        node.add_bridge("br0")
-        yield node
-        marker = request.node.get_closest_marker("log_allow")
-        node.stop(check=report.passed(request.node),
-                  log_allow=marker.args if marker else ())
+    try:
+        with node:
+            node.add_bridge("br0")
+            yield node
+            marker = request.node.get_closest_marker("log_allow")
+            node.stop(check=report.passed(request.node),
+                      log_allow=marker.args if marker else ())
+    finally:
+        if cpus is not None:
+            cpus.release()

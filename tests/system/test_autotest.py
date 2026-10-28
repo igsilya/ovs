@@ -27,9 +27,10 @@ Autotest tests load and unload kernel modules, which would disturb other
 tests running at the same time, so 'modprobe -r' is turned into a no-op
 for them.  The modules are loaded once for the whole session instead.
 
-DPDK tests run in parallel as well, but they need their share of the
-hugepages of the system, see tests.system.lib.hugepages, and wait for it
-if needed.
+AF_XDP and DPDK tests get CPUs for their PMD threads (and for testpmd),
+so busy polling threads of parallel tests don't share CPUs, see
+tests.system.lib.pmd.  DPDK tests also need their share of the hugepages
+of the system, see tests.system.lib.hugepages, and wait for it if needed.
 
 Tests that use physical devices can't run in parallel: DPDK tests with a
 PCI device and all the DPDK offload tests.  They are all in one
@@ -46,6 +47,7 @@ from tests.lib import env
 from tests.lib.autotest import AutotestSuite, matching_tests
 from tests.system.lib.features import datapath_config
 from tests.system.lib.hugepages import hugepage_slots
+from tests.system.lib.pmd import busy_polling, cpu_slots, pmd_environment
 
 # Ignore 'modprobe -r' in tests, the modules are managed by the session.
 _KEEP_MODULES = r"""
@@ -133,12 +135,23 @@ def test_autotest(request, autotest_runner, number):
         return
 
     request.getfixturevalue("isolated_ns")
-    if not dp.dpdk:
+    if not busy_polling(dp):
         suite(request.config).run(autotest_runner, number)
         return
 
-    # Hugepages for OVS, and more for testpmd.
+    # One CPU (and hugepage slot) for OVS, one more for testpmd.
     n = 2 if number in _testpmd_tests.get(dp, ()) else 1
     slots_dir = os.path.join(env.builddir(), "tests", ".slots")
-    with hugepage_slots(os.path.join(slots_dir, "hugepages")).acquire(n):
-        suite(request.config).run(autotest_runner, number)
+    held = []
+    try:
+        # Always in this order, hugepages first, to avoid deadlocks.
+        if dp.dpdk:
+            held.append(hugepage_slots(
+                os.path.join(slots_dir, "hugepages")).acquire(n))
+        cpus = cpu_slots(os.path.join(slots_dir, "cpus")).acquire(n)
+        held.append(cpus)
+        suite(request.config).run(autotest_runner, number,
+                                  env=pmd_environment(cpus))
+    finally:
+        for slots in reversed(held):
+            slots.release()

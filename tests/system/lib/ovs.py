@@ -218,6 +218,7 @@ class OVSNodeUserspace(SystemNode):
     Args:
         tso: Enable userspace TSO, like system-tso-macros.at.
         afxdp: Use AF_XDP ports for veths, like system-afxdp-macros.at.
+        pmd_cpu_mask: CPU mask for PMD threads (other_config:pmd-cpu-mask).
     """
 
     dp_type = "netdev"
@@ -232,12 +233,21 @@ class OVSNodeUserspace(SystemNode):
         r".*proto=2.*",
     ]
 
-    def __init__(self, test_dir, tso=False, afxdp=False, **kwargs):
+    def __init__(self, test_dir, tso=False, afxdp=False, pmd_cpu_mask=None,
+                 **kwargs):
         super().__init__(test_dir, **kwargs)
         if tso and afxdp:
             raise OVSError("TSO and AF_XDP modes are mutually exclusive")
         self.tso = tso
         self.afxdp = afxdp
+        self.pmd_cpu_mask = pmd_cpu_mask
+
+    def db_init_args(self):
+        args = super().db_init_args()
+        if self.pmd_cpu_mask:
+            args += ["--", "set", "Open_vSwitch", ".",
+                     "other_config:pmd-cpu-mask=" + self.pmd_cpu_mask]
+        return args
 
     def vswitchd_options(self):
         return ["--disable-system"] + super().vswitchd_options()

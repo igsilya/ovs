@@ -36,7 +36,7 @@ import subprocess
 
 import pytest
 
-from tests.lib.cmd import log_line
+from tests.lib.cmd import log_line, make_env
 
 # Protocol marker printed by the server loop.
 _MARKER = "@AT_SERVER@"
@@ -194,9 +194,11 @@ class AutotestServer:
         name: Name for the server script, e.g., 'testsuite.gw0'.
         flags: Additional Autotest flags.
         setup: Shell code to run in the server before the first test.
+        env: Additional environment variables for the server process.
     """
 
-    def __init__(self, testsuite, rundir, name, flags=(), setup=""):
+    def __init__(self, testsuite, rundir, name, flags=(), setup="",
+                 env=None):
         self.rundir = rundir = os.path.abspath(rundir)
         self.name = name
         self.script = os.path.join(rundir, name)
@@ -218,16 +220,23 @@ class AutotestServer:
         self._cmd.append("1")
         self._proc = None
         self.check_line = None
-        self.start()
+        self.start(env)
 
-    def start(self):
-        """Start the server process, if it is not running."""
+    def start(self, env=None):
+        """Start the server process, if it is not running.
+
+        ``env`` is a dict of additional environment variables for the
+        process and the tests it runs.
+        """
         if self.alive():
             return
-        log_line("$ " + " ".join(self._cmd))
+        log_line("$ " + " ".join(
+            ["%s=%s" % kv for kv in sorted((env or {}).items())]
+            + self._cmd))
         self._proc = subprocess.Popen(self._cmd, stdin=subprocess.PIPE,
                                       stdout=subprocess.PIPE,
-                                      universal_newlines=True)
+                                      universal_newlines=True,
+                                      env=make_env(env))
         self._read_until(_MARKER + " ready")
 
     def stop(self):
@@ -380,11 +389,15 @@ class AutotestSuite:
         yield runner
         runner.close()
 
-    def run(self, runner, number):
-        """Run test ``number`` and report its result to pytest."""
+    def run(self, runner, number, env=None):
+        """Run test ``number`` and report its result to pytest.
+
+        ``env`` is a dict of additional environment variables for the test.
+        Only supported with ``process_per_test``.
+        """
         __tracebackhide__ = True
         location, name = self.tests()[number]
-        result, group_dir = runner.run(number)
+        result, group_dir = runner.run(number, env)
         check_line = runner.server.check_line or location
         if result == "skip":
             pytest.skip("skipped by Autotest (%s)" % check_line)
@@ -413,19 +426,23 @@ class _Runner:
         self.server = None
         self.failed = False
 
-    def run(self, number):
+    def run(self, number, env=None):
         if self.suite.process_per_test:
             if self.server is None:
                 self.server = AutotestServer(self.suite.testsuite,
                                              self.suite.rundir, self.name,
-                                             self.flags, self.suite.setup)
+                                             self.flags, self.suite.setup,
+                                             env)
             else:
-                self.server.start()
+                self.server.start(env)
             try:
                 return self.server.run(number)
             finally:
                 self.server.stop()
 
+        if env:
+            raise AutotestError("per-test environment requires "
+                                "process_per_test")
         if self.server is None or not self.server.alive():
             if self.server is not None:
                 self.failed = True
