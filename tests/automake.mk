@@ -595,6 +595,9 @@ PYTEST_PYFILES = \
 	tests/lib/process.py \
 	tests/lib/report.py \
 	tests/run-pytest.py \
+	tests/system/__init__.py \
+	tests/system/lib/__init__.py \
+	tests/system/lib/netns.py \
 	tests/unit/__init__.py \
 	tests/unit/conftest.py \
 	tests/unit/test_autotest.py \
