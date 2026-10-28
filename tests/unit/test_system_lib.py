@@ -153,3 +153,14 @@ def test_testsuite_names():
         == "system-dpdk-testsuite"
     assert autotest_suite_name(dp("userspace", dpdk=True, offload=True)) \
         == "system-dpdk-offloads-testsuite"
+
+
+class TestHugepages:
+    def test_slot_count(self, tmp_path, monkeypatch):
+        from tests.system.lib import hugepages
+
+        monkeypatch.setattr(hugepages, "hugepage_bytes", lambda: 0)
+        assert hugepages.hugepage_slots(str(tmp_path)).count == 1
+        monkeypatch.setattr(hugepages, "hugepage_bytes",
+                            lambda: 5 * hugepages.SLOT_BYTES + 1)
+        assert hugepages.hugepage_slots(str(tmp_path)).count == 5

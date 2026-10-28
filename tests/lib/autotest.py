@@ -112,6 +112,25 @@ def list_tests(testsuite, rundir, flags=()):
     return tests
 
 
+def matching_tests(testsuite, text):
+    """Return numbers of tests whose bodies contain ``text``.
+
+    The bodies are what Autotest runs, i.e., with all the macros expanded.
+    """
+    text = text.encode()
+    numbers = set()
+    number = None
+    with open(testsuite, "rb") as f:
+        for line in f:
+            if line.startswith(b"#AT_START_"):
+                number = int(line[len(b"#AT_START_"):])
+            elif line.startswith(b"#AT_STOP_"):
+                number = None
+            elif number is not None and text in line:
+                numbers.add(number)
+    return numbers
+
+
 def make_server_script(testsuite, path, setup=""):
     """Prepare a server copy of ``testsuite`` at ``path``.
 
@@ -307,7 +326,8 @@ class AutotestSuite:
     Args:
         testsuite: Path to the generated testsuite script.
         rundir: Directory with atconfig and atlocal.
-        marks: pytest marks for all the tests.
+        marks: pytest marks for all the tests, or a function that returns
+            a list of marks for a test number.
         setup: Shell code to run in the testsuite before the first test,
             see ``AutotestServer``.
         process_per_test: Run every test in a new testsuite process,
@@ -320,7 +340,7 @@ class AutotestSuite:
                  process_per_test=False):
         self.testsuite = testsuite
         self.rundir = rundir
-        self.marks = list(marks)
+        self.marks = marks if callable(marks) else list(marks)
         self.setup = setup
         self.process_per_test = process_per_test
         self._tests = None
@@ -344,7 +364,9 @@ class AutotestSuite:
         params = []
         for number, (location, name) in sorted(self.tests().items()):
             safe_name = re.sub(r"[^A-Za-z0-9_.=+-]+", "_", name).strip("_")
-            params.append(pytest.param(number, marks=self.marks,
+            marks = self.marks(number) if callable(self.marks) \
+                else self.marks
+            params.append(pytest.param(number, marks=marks,
                                        id="%04d-%s" % (number, safe_name)))
         return params
 

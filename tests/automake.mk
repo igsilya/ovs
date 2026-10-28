@@ -611,6 +611,7 @@ PYTEST_PYFILES = \
 	tests/system/lib/conntrack.py \
 	tests/system/lib/features.py \
 	tests/system/lib/flows.py \
+	tests/system/lib/hugepages.py \
 	tests/system/lib/l7.py \
 	tests/system/lib/netns.py \
 	tests/system/lib/options.py \

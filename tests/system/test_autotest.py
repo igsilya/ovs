@@ -27,9 +27,15 @@ Autotest tests load and unload kernel modules, which would disturb other
 tests running at the same time, so 'modprobe -r' is turned into a no-op
 for them.  The modules are loaded once for the whole session instead.
 
-DPDK tests use hugepages and physical devices, so they are not isolated.
-They are all in one pytest-xdist group instead, so with '--dist=loadgroup'
-they run on one worker, one after another.
+DPDK tests run in parallel as well, but they need their share of the
+hugepages of the system, see tests.system.lib.hugepages, and wait for it
+if needed.
+
+Tests that use physical devices can't run in parallel: DPDK tests with a
+PCI device and all the DPDK offload tests.  They are all in one
+pytest-xdist group, so with '--dist=loadgroup' they run on one worker, one
+after another.  DPDK offload tests also need the representor ports of the
+system, so they are not isolated.
 """
 
 import os
@@ -37,8 +43,9 @@ import os
 import pytest
 
 from tests.lib import env
-from tests.lib.autotest import AutotestSuite
+from tests.lib.autotest import AutotestSuite, matching_tests
 from tests.system.lib.features import datapath_config
+from tests.system.lib.hugepages import hugepage_slots
 
 # Ignore 'modprobe -r' in tests, the modules are managed by the session.
 _KEEP_MODULES = r"""
@@ -67,24 +74,45 @@ def autotest_suite_name(dp):
 
 
 _suites = {}
+_testpmd_tests = {}
+
+
+# Marker of tests that use a physical device: a test body that looks for
+# a PCI device for DPDK (OVS_DPDK_PRE_PHY_SKIP).
+_PCI_TEST_MARKER = "system-dpdk-find-device.py"
+
+_SERIAL = [pytest.mark.xdist_group("serial")]
+
+# Marker of tests that need hugepages for testpmd in addition to OVS.
+_TESTPMD_TEST_MARKER = "dpdk-testpmd"
 
 
 def isolated(config):
     """Whether Autotest tests run in isolated namespaces."""
-    return not datapath_config(config).dpdk
+    dp = datapath_config(config)
+    return not (dp.dpdk and dp.offload)
 
 
 def suite(config):
     dp = datapath_config(config)
     if dp not in _suites:
-        if isolated(config):
-            marks, per_test = [], True
+        testsuite = os.path.join(env.srcdir(), "tests",
+                                 autotest_suite_name(dp))
+        if not isolated(config):
+            marks = _SERIAL
+        elif dp.dpdk and os.path.isfile(testsuite):
+            pci_tests = matching_tests(testsuite, _PCI_TEST_MARKER)
+            _testpmd_tests[dp] = matching_tests(testsuite,
+                                                _TESTPMD_TEST_MARKER)
+
+            def marks(number):
+                return _SERIAL if number in pci_tests else []
         else:
-            marks, per_test = [pytest.mark.xdist_group("autotest")], False
+            marks = []
         _suites[dp] = AutotestSuite(
-            os.path.join(env.srcdir(), "tests", autotest_suite_name(dp)),
-            os.path.join(env.builddir(), "tests"),
-            marks=marks, setup=_KEEP_MODULES, process_per_test=per_test)
+            testsuite, os.path.join(env.builddir(), "tests"),
+            marks=marks, setup=_KEEP_MODULES,
+            process_per_test=isolated(config))
     return _suites[dp]
 
 
@@ -99,6 +127,18 @@ def autotest_runner(request):
 
 
 def test_autotest(request, autotest_runner, number):
-    if isolated(request.config):
-        request.getfixturevalue("isolated_ns")
-    suite(request.config).run(autotest_runner, number)
+    dp = datapath_config(request.config)
+    if not isolated(request.config):
+        suite(request.config).run(autotest_runner, number)
+        return
+
+    request.getfixturevalue("isolated_ns")
+    if not dp.dpdk:
+        suite(request.config).run(autotest_runner, number)
+        return
+
+    # Hugepages for OVS, and more for testpmd.
+    n = 2 if number in _testpmd_tests.get(dp, ()) else 1
+    slots_dir = os.path.join(env.builddir(), "tests", ".slots")
+    with hugepage_slots(os.path.join(slots_dir, "hugepages")).acquire(n):
+        suite(request.config).run(autotest_runner, number)

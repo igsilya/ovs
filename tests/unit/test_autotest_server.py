@@ -196,3 +196,11 @@ def test_server_restart(testsuite, rundir):
     assert not os.path.exists(server.script)
     # The failed test is preserved.
     assert os.path.exists(os.path.join(server.suite_dir, "2"))
+
+
+def test_matching_tests(testsuite):
+    from tests.lib.autotest import matching_tests
+
+    assert matching_tests(testsuite, "echo unexpected") == {2}
+    assert matching_tests(testsuite, "kill -9") == {6}
+    assert matching_tests(testsuite, "no such text") == set()
