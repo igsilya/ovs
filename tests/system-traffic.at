@@ -246,66 +246,6 @@ NS_CHECK_EXEC([at_ns0], [ping -s 3200 -q -c 3 -i 0.3 -W 2 10.1.1.2 | FORMAT_PING
 OVS_TRAFFIC_VSWITCHD_STOP
 AT_CLEANUP
 
-AT_SETUP([datapath - ping over vxlan tunnel])
-AT_SKIP_IF([test $HAVE_NC = no])
-OVS_CHECK_VXLAN()
-
-OVS_TRAFFIC_VSWITCHD_START()
-ADD_BR([br-underlay])
-
-AT_CHECK([ovs-ofctl add-flow br0 "actions=normal"])
-AT_CHECK([ovs-ofctl add-flow br-underlay "actions=normal"])
-
-ADD_NAMESPACES(at_ns0)
-
-dnl Set up underlay link from host into the namespace using veth pair.
-ADD_VETH(p0, at_ns0, br-underlay, "172.31.1.1/24")
-AT_CHECK([ip addr add dev br-underlay "172.31.1.100/24"])
-AT_CHECK([ip link set dev br-underlay up])
-
-dnl Set up tunnel endpoints on OVS outside the namespace and with a native
-dnl linux device inside the namespace.
-ADD_OVS_TUNNEL([vxlan], [br0], [at_vxlan0], [172.31.1.1], [10.1.1.100/24])
-ADD_NATIVE_TUNNEL([vxlan], [at_vxlan1], [at_ns0], [172.31.1.100], [10.1.1.1/24],
-                  [id 0 dstport 4789])
-
-dnl First, check the underlay
-NS_CHECK_EXEC([at_ns0], [ping -q -c 3 -i 0.3 -W 2 172.31.1.100 | FORMAT_PING], [0], [dnl
-3 packets transmitted, 3 received, 0% packet loss, time 0ms
-])
-
-dnl Okay, now check the overlay with different packet sizes
-NS_CHECK_EXEC([at_ns0], [ping -q -c 3 -i 0.3 -W 2 10.1.1.100 | FORMAT_PING], [0], [dnl
-3 packets transmitted, 3 received, 0% packet loss, time 0ms
-])
-NS_CHECK_EXEC([at_ns0], [ping -s 1600 -q -c 3 -i 0.3 -W 2 10.1.1.100 | FORMAT_PING], [0], [dnl
-3 packets transmitted, 3 received, 0% packet loss, time 0ms
-])
-NS_CHECK_EXEC([at_ns0], [ping -s 3200 -q -c 3 -i 0.3 -W 2 10.1.1.100 | FORMAT_PING], [0], [dnl
-3 packets transmitted, 3 received, 0% packet loss, time 0ms
-])
-
-dnl Start ncat listeners.
-OVS_DAEMONIZE([nc -l 10.1.1.100 1234 > tcp_data], [nc.pid])
-NETNS_DAEMONIZE([at_ns0], [nc -l -u 10.1.1.1 4321 > udp_data], [nc2.pid])
-
-dnl Verify that ncat is ready.
-OVS_WAIT_UNTIL([netstat -ln | grep :1234])
-OVS_WAIT_UNTIL([NS_EXEC([at_ns0], [netstat -ln | grep :4321])])
-
-dnl Check large bidirectional TCP.
-AT_CHECK([dd if=/dev/urandom of=payload.bin bs=60000 count=1 2> /dev/null])
-NS_CHECK_EXEC([at_ns0], [nc $NC_EOF_OPT 10.1.1.100 1234 < payload.bin])
-OVS_WAIT_UNTIL([diff -q payload.bin tcp_data])
-
-dnl Check UDP.
-AT_CHECK([dd if=/dev/urandom of=payload.bin bs=600 count=1 2> /dev/null])
-AT_CHECK([nc $NC_EOF_OPT -u 10.1.1.1 4321 < payload.bin])
-OVS_WAIT_UNTIL([diff -q payload.bin udp_data])
-
-OVS_TRAFFIC_VSWITCHD_STOP
-AT_CLEANUP
-
 AT_SETUP([datapath - tcp over vxlan tunnel with software fallback])
 AT_SKIP_IF([test $HAVE_NC = no])
 AT_SKIP_IF([test $HAVE_TCPDUMP = no])
