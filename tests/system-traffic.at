@@ -2546,16 +2546,22 @@ add in_port=ovs-p1,actions=ovs-p0,br0
 ])
 AT_CHECK([ovs-ofctl add-flows br0 flows.txt])
 
+dnl Install the datapath flows first, so all the packets below hit them.
+dnl Packets that go to userspace are not counted in the flow statistics.
+NS_CHECK_EXEC([at_ns0], [ping -q -c 1 -W 2 10.1.1.2], [0], [ignore])
+OVS_WAIT_UNTIL([test $(ovs-appctl dpctl/dump-flows | dnl
+                       grep -c "eth_type(0x0800)") -eq 2])
+
 NS_CHECK_EXEC([at_ns0], [ping -q -c 10 -i 0.1 -W 2 10.1.1.2 | FORMAT_PING], [0], [dnl
 10 packets transmitted, 10 received, 0% packet loss, time 0ms
 ])
 
 AT_CHECK([ovs-appctl dpctl/dump-flows --names | grep "eth_type(0x0800)" |dnl
           sort | strip_recirc | strip_used | dnl
-          sed 's/,packet_type(ns=[[0-9]]*,id=[[0-9]]*),/,/;s/,eth(),/,/;s/bytes:756/bytes:882/'],
+          sed 's/,packet_type(ns=[[0-9]]*,id=[[0-9]]*),/,/;s/,eth(),/,/;s/bytes:840/bytes:980/'],
           [0], [dnl
-recirc_id(<recirc>),in_port(ovs-p0),eth_type(0x0800),ipv4(frag=no), packets:9, bytes:882, used:0.0s, actions:ovs-p1,br0
-recirc_id(<recirc>),in_port(ovs-p1),eth_type(0x0800),ipv4(frag=no), packets:9, bytes:882, used:0.0s, actions:ovs-p0,br0
+recirc_id(<recirc>),in_port(ovs-p0),eth_type(0x0800),ipv4(frag=no), packets:10, bytes:980, used:0.0s, actions:ovs-p1,br0
+recirc_id(<recirc>),in_port(ovs-p1),eth_type(0x0800),ipv4(frag=no), packets:10, bytes:980, used:0.0s, actions:ovs-p0,br0
 ])
 
 AT_DATA([flows2.txt], [dnl
@@ -2571,10 +2577,10 @@ NS_CHECK_EXEC([at_ns0], [ping -q -c 10 -i 0.1 -W 2 10.1.1.2 | FORMAT_PING], [0],
 
 AT_CHECK([ovs-appctl dpctl/dump-flows --names | grep "eth_type(0x0800)" | dnl
           sort | strip_recirc | strip_used | dnl
-          sed -e 's/,packet_type(ns=[[0-9]]*,id=[[0-9]]*),/,/;s/,eth(),/,/;s/bytes:1596/bytes:1862/'],
+          sed -e 's/,packet_type(ns=[[0-9]]*,id=[[0-9]]*),/,/;s/,eth(),/,/;s/bytes:1680/bytes:1960/'],
           [0], [dnl
-recirc_id(<recirc>),in_port(ovs-p0),eth_type(0x0800),ipv4(frag=no), packets:19, bytes:1862, used:0.0s, actions:ovs-p1
-recirc_id(<recirc>),in_port(ovs-p1),eth_type(0x0800),ipv4(frag=no), packets:19, bytes:1862, used:0.0s, actions:ovs-p0
+recirc_id(<recirc>),in_port(ovs-p0),eth_type(0x0800),ipv4(frag=no), packets:20, bytes:1960, used:0.0s, actions:ovs-p1
+recirc_id(<recirc>),in_port(ovs-p1),eth_type(0x0800),ipv4(frag=no), packets:20, bytes:1960, used:0.0s, actions:ovs-p0
 ])
 
 AT_CHECK([ovs-ofctl add-flows br0 flows.txt])
@@ -2586,10 +2592,10 @@ NS_CHECK_EXEC([at_ns0], [ping -q -c 10 -i 0.1 -W 2 10.1.1.2 | FORMAT_PING], [0],
 
 AT_CHECK([ovs-appctl dpctl/dump-flows --names | grep "eth_type(0x0800)" | dnl
           sort | strip_recirc | strip_used | dnl
-          sed 's/,packet_type(ns=[[0-9]]*,id=[[0-9]]*),/,/;s/,eth(),/,/;s/bytes:2436/bytes:2842/'],
+          sed 's/,packet_type(ns=[[0-9]]*,id=[[0-9]]*),/,/;s/,eth(),/,/;s/bytes:2520/bytes:2940/'],
           [0], [dnl
-recirc_id(<recirc>),in_port(ovs-p0),eth_type(0x0800),ipv4(frag=no), packets:29, bytes:2842, used:0.0s, actions:ovs-p1,br0
-recirc_id(<recirc>),in_port(ovs-p1),eth_type(0x0800),ipv4(frag=no), packets:29, bytes:2842, used:0.0s, actions:ovs-p0,br0
+recirc_id(<recirc>),in_port(ovs-p0),eth_type(0x0800),ipv4(frag=no), packets:30, bytes:2940, used:0.0s, actions:ovs-p1,br0
+recirc_id(<recirc>),in_port(ovs-p1),eth_type(0x0800),ipv4(frag=no), packets:30, bytes:2940, used:0.0s, actions:ovs-p0,br0
 ])
 
 OVS_TRAFFIC_VSWITCHD_STOP
