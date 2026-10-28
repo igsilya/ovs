@@ -77,6 +77,8 @@
 /testsuite.dir/
 /testsuite.log
 /pytest.dir/
+/*testsuite.gw[0-9]*
+/*testsuite.pytest*
 /pytest.dir.recheck/
 /.pytest_cache/
 /test-lib
