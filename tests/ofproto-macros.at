@@ -264,15 +264,15 @@ m4_define([OVS_VSWITCHD_START],
    AT_CHECK([add_of_br 0 $1 m4_if([$2], [], [], [| uuidfilt])], [0], [$2])
 ])
 
-# check_logs scans through all *.log files (except '*.log' and testsuite.log)
-# and reports all WARN, ERR, EMER log entries.  User can add custom sed filters
-# in $1.
+# check_logs scans through all *.log files (except '*.log' and the testsuite's
+# own *testsuite*.log) and reports all WARN, ERR, EMER log entries.  User can
+# add custom sed filters in $1.
 m4_divert_push([PREPARE_TESTS])
 check_logs () {
     local logs
     for log in *.log; do
         case ${log} in # (
-            '*.log'|testsuite.log) ;; # (
+            '*.log'|*testsuite*.log) ;; # (
             *) logs="${logs} ${log}" ;;
         esac
     done
