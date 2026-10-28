@@ -81,6 +81,7 @@
 /*testsuite.pytest*
 /pytest.dir.recheck/
 /.pytest_cache/
+/.slots/
 /test-lib
 /testsuite.tmp.orig
 /valgrind.[0-9]*

@@ -603,6 +603,7 @@ PYTEST_PYFILES = \
 	tests/lib/ovs.py \
 	tests/lib/process.py \
 	tests/lib/report.py \
+	tests/lib/slots.py \
 	tests/run-pytest.py \
 	tests/system/__init__.py \
 	tests/system/conftest.py \
@@ -627,6 +628,7 @@ PYTEST_PYFILES = \
 	tests/unit/test_process.py \
 	tests/unit/test_report.py \
 	tests/unit/test_run_pytest.py \
+	tests/unit/test_slots.py \
 	tests/unit/test_system_lib.py
 
 EXTRA_DIST += $(PYTEST_PYFILES) tests/pytest.ini
@@ -636,6 +638,7 @@ FLAKE8_PYFILES += $(PYTEST_PYFILES)
 CLEAN_LOCAL += clean-pytest
 clean-pytest:
 	rm -rf tests/pytest.dir tests/pytest.dir.recheck tests/.pytest_cache
+	rm -rf tests/.slots
 	rm -rf tests/*testsuite.gw[0-9]* tests/*testsuite.pytest*
 
 if HAVE_OPENSSL
