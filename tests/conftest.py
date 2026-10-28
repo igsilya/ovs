@@ -12,9 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""pytest configuration for OVS unit tests."""
+"""Common pytest configuration for all OVS tests."""
 
 from tests.lib import env
+from tests.lib.report import (  # noqa: F401
+    pytest_addoption,
+    pytest_runtest_makereport,
+    pytest_runtest_teardown,
+    test_dir,
+)
+
+pytest_plugins = ("pytester",)
 
 
 def pytest_configure(config):
