@@ -230,16 +230,26 @@ PYTEST_RUN = \
 	    --recheck='$(RECHECK)' \
 	    --cache-dir='$(abs_top_builddir)/tests/.pytest_cache'
 
-check-local:
+AUTOTEST_RUN = \
 	set $(SHELL) '$(TESTSUITE)' -C tests AUTOTEST_PATH=$(AUTOTEST_PATH); \
 	"$$@" $(TESTSUITEFLAGS) || \
 	(test -z "$$(find $(TESTSUITE_DIR) -name 'sanitizers.*')" && \
 	 test X'$(RECHECK)' = Xyes && "$$@" --recheck)
+
+# The Autotest testsuite runs through pytest (tests/unit/test_autotest.py)
+# together with the pytest-based tests.  If pytest is not available, the
+# Autotest testsuite runs directly, as before.
+check-local:
 	$(PYTEST_RUN) --basetemp='$(abs_top_builddir)/tests/pytest.dir' \
 	    '$(abs_top_srcdir)/tests/unit'; \
 	rc=$$?; \
-	if test $$rc -eq 77; then echo "Skipping pytest-based tests."; rc=0; fi; \
-	exit $$rc
+	if test $$rc -ne 77; then exit $$rc; fi; \
+	echo "Running the Autotest testsuite without pytest."; \
+	$(AUTOTEST_RUN)
+
+# Runs the Autotest testsuite directly, without pytest.
+check-autotest: all
+	$(AUTOTEST_RUN)
 
 # Python Coverage support.
 # Requires coverage.py http://nedbatchelder.com/code/coverage/.
@@ -586,11 +596,13 @@ PYTEST_PYFILES = \
 	tests/run-pytest.py \
 	tests/unit/__init__.py \
 	tests/unit/conftest.py \
+	tests/unit/test_autotest.py \
 	tests/unit/test_autotest_server.py \
 	tests/unit/test_cmd.py \
 	tests/unit/test_ovs.py \
 	tests/unit/test_process.py \
-	tests/unit/test_report.py
+	tests/unit/test_report.py \
+	tests/unit/test_run_pytest.py
 
 EXTRA_DIST += $(PYTEST_PYFILES) tests/pytest.ini
 PYCOV_CLEAN_FILES += $(PYTEST_PYFILES:.py=.py,cover)
@@ -599,6 +611,7 @@ FLAKE8_PYFILES += $(PYTEST_PYFILES)
 CLEAN_LOCAL += clean-pytest
 clean-pytest:
 	rm -rf tests/pytest.dir tests/pytest.dir.recheck tests/.pytest_cache
+	rm -rf tests/*testsuite.gw[0-9]* tests/*testsuite.pytest*
 
 if HAVE_OPENSSL
 TESTPKI_FILES = \

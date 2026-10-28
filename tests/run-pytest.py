@@ -19,6 +19,12 @@
   RECHECK=yes     Failed tests are run once more at the end ('--lf'),
                   unless a sanitizer reported an error.
 
+If tests run in parallel ('-n' in PYTESTFLAGS) and pytest-xdist supports it,
+tests are sent to workers one by one ('--maxschedchunk=1'), unless the
+distribution is configured in PYTESTFLAGS.  By default, pytest-xdist sends
+chunks of consecutive tests to each worker, which is not good for the
+Autotest tests: long tests are often next to each other.
+
 Exits with status 77 if a usable pytest is not available, so the caller
 can fall back to a plain Autotest run.
 """
@@ -28,6 +34,7 @@ import glob
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 
@@ -59,10 +66,50 @@ def module_version(name):
     return version_tuple(getattr(module, "__version__", "0"))
 
 
+def has_option(args, *names):
+    """Whether any of the options ``names`` is in ``args``."""
+    for arg in args:
+        for name in names:
+            if arg == name or arg.startswith(name + "=") \
+                    or (len(name) == 2 and arg.startswith(name)
+                        and not arg.startswith("--")):
+                return True
+    return False
+
+
+def xdist_args(user_args):
+    """Return default pytest-xdist arguments for ``user_args``."""
+    if not has_option(user_args, "-n", "--numprocesses") \
+            or has_option(user_args, "--dist", "--maxschedchunk", "-d"):
+        return []
+    version = module_version("xdist")
+    if version is None or version < (3, 4):
+        return []
+    return ["--maxschedchunk=1"]
+
+
 def sanitizer_reports(basetemp):
+    """Return sanitizer reports from pytest and Autotest test directories."""
+    rundir = os.path.dirname(basetemp)
+    dirs = [basetemp]
+    for pattern in ("*testsuite.gw[0-9]*.dir", "*testsuite.pytest.dir"):
+        dirs += glob.glob(os.path.join(rundir, pattern))
     # Reports are in the test directories, one level down.  Deeper levels
     # are, e.g., temporary directories of tests, with anything inside.
-    return glob.glob(os.path.join(basetemp, "*", "sanitizers.*"))
+    reports = []
+    for d in dirs:
+        reports += glob.glob(os.path.join(d, "*", "sanitizers.*"))
+    return reports
+
+
+def remove_autotest_artifacts(rundir):
+    """Remove leftovers of Autotest testsuites run by previous runs."""
+    for pattern in ("*testsuite.gw[0-9]*", "*testsuite.pytest*"):
+        for path in glob.glob(os.path.join(rundir, pattern)):
+            if os.path.isdir(path) and not os.path.islink(path):
+                shutil.rmtree(path, ignore_errors=True)
+            else:
+                os.unlink(path)
 
 
 def main():
@@ -93,7 +140,10 @@ def main():
             "--basetemp=" + opts.basetemp,
             "-o", "cache_dir=" + opts.cache_dir]
     args += opts.args
-    args += shlex.split(opts.pytestflags)
+    user_args = shlex.split(opts.pytestflags)
+    args += xdist_args(user_args) + user_args
+
+    remove_autotest_artifacts(os.path.dirname(opts.basetemp))
 
     print(" ".join(shlex.quote(a) for a in args), flush=True)
     rc = subprocess.call(args)
