@@ -14,10 +14,18 @@
 
 """Tests for the parts of tests.system.lib that don't need root."""
 
+import types
+
 import pytest
 
+from tests.system.lib import features
 from tests.system.lib.conntrack import ConntrackEntry, format_ct
+from tests.system.lib.features import DatapathConfig, check_requirements
 from tests.system.lib.ping import PingResult, parse_ping
+
+KERNEL = DatapathConfig("system", False, False, False, False)
+OFFLOAD = DatapathConfig("system", True, False, False, False)
+USERSPACE = DatapathConfig("userspace", False, False, False, False)
 
 
 class TestPing:
@@ -81,3 +89,45 @@ class TestConntrack:
             "sport=<cleared>,dport=<cleared>)",
         ]
         assert format_ct(DUMP, "192.168.0.1") == []
+
+
+class FakeItem:
+    def __init__(self, **markers):
+        self.markers = markers
+
+    def iter_markers(self, name):
+        if name in self.markers:
+            yield types.SimpleNamespace(args=self.markers[name])
+
+
+class TestFeatures:
+    def test_datapath_specific(self):
+        item = FakeItem(requires=("conntrack_local_stack",))
+        assert check_requirements(item, KERNEL) is None
+        assert "userspace" in check_requirements(item, USERSPACE)
+
+        item = FakeItem(requires=("conntrack", "conntrack_alg"))
+        assert check_requirements(item, KERNEL) is None
+        assert check_requirements(item, USERSPACE) is None
+        assert "ALG" in check_requirements(item, OFFLOAD)
+
+        item = FakeItem(requires=("ct_dpif_maxconns",))
+        assert check_requirements(item, KERNEL)
+        assert check_requirements(item, USERSPACE) is None
+
+    def test_unknown(self):
+        with pytest.raises(ValueError):
+            check_requirements(FakeItem(requires=("no-such-thing",)), KERNEL)
+
+    def test_min_kernel(self, monkeypatch):
+        monkeypatch.setattr(features, "kernel_version", lambda: (5, 14))
+        assert check_requirements(FakeItem(min_kernel=(5, 14)),
+                                  KERNEL) is None
+        assert check_requirements(FakeItem(min_kernel=(4, 20)),
+                                  KERNEL) is None
+        assert "5.19" in check_requirements(FakeItem(min_kernel=(5, 19)),
+                                            KERNEL)
+        assert check_requirements(FakeItem(min_kernel=(3, 10)), USERSPACE)
+
+    def test_no_markers(self):
+        assert check_requirements(FakeItem(), KERNEL) is None
