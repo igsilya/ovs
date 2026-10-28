@@ -75,6 +75,19 @@ def _dir_name(nodeid):
     return name[:200]
 
 
+def passed(item):
+    """Return whether setup and call of test ``item`` passed so far.
+
+    Meant to be used in fixture teardown, e.g., to skip post-test checks
+    when the test already failed.
+    """
+    for when in ("setup", "call"):
+        rep = getattr(item, "_ovs_rep_" + when, None)
+        if rep is None or rep.failed:
+            return False
+    return True
+
+
 def artifact_dir(item):
     """Return the artifact directory of a test item, or None."""
     return getattr(item, "_ovs_test_dir", None)
@@ -161,12 +174,8 @@ def pytest_runtest_makereport(item, call):
 def pytest_runtest_teardown(item, nextitem):
     # Not reached if teardown of a fixture failed, so the directory of
     # such a test is preserved as well.
-    if item.config.getoption("keep_artifacts"):
+    if item.config.getoption("keep_artifacts") or not passed(item):
         return
-    for when in ("setup", "call"):
-        rep = getattr(item, "_ovs_rep_" + when, None)
-        if rep is None or rep.failed:
-            return
     path = artifact_dir(item)
     if path:
         shutil.rmtree(path, ignore_errors=True)

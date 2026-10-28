@@ -579,11 +579,14 @@ PYTEST_PYFILES = \
 	tests/lib/__init__.py \
 	tests/lib/cmd.py \
 	tests/lib/env.py \
+	tests/lib/ovs.py \
 	tests/lib/process.py \
 	tests/lib/report.py \
 	tests/run-pytest.py \
 	tests/unit/__init__.py \
+	tests/unit/conftest.py \
 	tests/unit/test_cmd.py \
+	tests/unit/test_ovs.py \
 	tests/unit/test_process.py \
 	tests/unit/test_report.py
 
