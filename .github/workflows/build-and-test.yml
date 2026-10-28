@@ -342,8 +342,10 @@ jobs:
         # So, we're just archiving everything here to avoid any issues.
         mkdir logs
         cp config.log ./logs/
-        cp -r ./*/_build/sub/tests/testsuite.* ./logs/ || true
+        cp -r ./*/_build/sub/tests/*testsuite.* ./logs/ || true
+        cp -r ./*/_build/sub/tests/pytest.dir* ./logs/ || true
         sudo cp -r ./tests/*testsuite.* ./logs/ || true
+        sudo cp -r ./tests/pytest.dir* ./logs/ || true
         sudo tar -czvf logs.tgz logs/
 
     - name: upload logs on failure

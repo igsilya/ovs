@@ -28,6 +28,8 @@ pip3 install --disable-pip-version-check --user \
 
 # Install python test dependencies
 pip3 install -r python/test_requirements.txt
+# For running pytest-based tests in parallel.
+pip3 install pytest-xdist
 
 # Make sure IPv6 is enabled to avoid skipping of IPv6 related tests.
 sudo sysctl -w net.ipv6.conf.all.disable_ipv6=0

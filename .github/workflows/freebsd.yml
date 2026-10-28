@@ -8,6 +8,7 @@ env:
   FREEBSD_PACKAGES: >-
     automake libtool gmake openssl python3 rsync
     py312-sphinx py312-netaddr py312-pyparsing
+    py312-pytest py312-pytest-xdist
   dependencies: >-
     qemu-system-x86 qemu-utils genisoimage rsync openssh-client ovmf
     wget xz-utils
@@ -67,7 +68,8 @@ jobs:
         # So, we're just archiving everything here to avoid any issues.
         mkdir logs
         cp config.log ./logs/ || true
-        cp -r ./tests/testsuite.* ./logs/ || true
+        cp -r ./tests/*testsuite.* ./logs/ || true
+        cp -r ./tests/pytest.dir* ./logs/ || true
         cp nuageinit.log ./logs/ || true
         cp freebsd-console.log ./logs/ || true
         sudo tar -czvf logs.tgz logs/

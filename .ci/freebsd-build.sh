@@ -39,8 +39,8 @@ freebsd_start_vm "${RUN_IMG}" /tmp/freebsd-seed.iso "${OVMF_VARS}"
 cleanup() {
     mkdir -p tests
     freebsd_rsync_from /root/ovs/config.log          ./     2>/dev/null || true
-    freebsd_rsync_from /root/ovs/tests/testsuite.log tests/ 2>/dev/null || true
-    freebsd_rsync_from /root/ovs/tests/testsuite.dir tests/ 2>/dev/null || true
+    freebsd_rsync_from '/root/ovs/tests/*testsuite.*' tests/ 2>/dev/null || true
+    freebsd_rsync_from '/root/ovs/tests/pytest.dir*' tests/ 2>/dev/null || true
     freebsd_rsync_from /var/log/nuageinit.log        ./     2>/dev/null || true
     freebsd_stop_vm
     cp /tmp/freebsd-vm.log ./freebsd-console.log 2>/dev/null || true
@@ -62,4 +62,4 @@ freebsd_ssh "cd /root/ovs && ./boot.sh && \
     ./configure CC=${CC} CFLAGS='-g -O2 -Wall' MAKE=gmake \
         --disable-posix-aio --enable-Werror"
 
-freebsd_ssh "cd /root/ovs && gmake -j8 check TESTSUITEFLAGS=-j8 RECHECK=yes"
+freebsd_ssh "cd /root/ovs && gmake -j8 check PYTESTFLAGS=-n8 RECHECK=yes"
