@@ -150,7 +150,7 @@ To kick start end-to-end autotesting::
 
   uname -a # make sure having 5.4+ kernel
   ethtool --version # make sure ethtool is installed
-  make check-afxdp TESTSUITEFLAGS='1'
+  make check-afxdp PYTESTFLAGS="-k 'test_autotest[0001'"
 
 .. note::
    Not all test cases pass at this time. Currently all cvlan tests are skipped
@@ -159,7 +159,9 @@ To kick start end-to-end autotesting::
 If a test case fails, check the log at::
 
   cat \
-  tests/system-afxdp-testsuite.dir/<test num>/system-afxdp-testsuite.log
+  tests/system-afxdp-testsuite.pytest.dir/<test num>/system-afxdp-testsuite.pytest.log
+
+See :doc:`/topics/testing` for details.
 
 
 Setup AF_XDP netdev
