@@ -7,6 +7,8 @@ CFLAGS_FOR_OVS="-g -O2"
 SPARSE_FLAGS=""
 EXTRA_OPTS="--enable-Werror"
 JOBS=${JOBS:-"-j4"}
+# Number of parallel jobs for pytest-xdist, e.g., '4' for '-j4'.
+NPROC=${JOBS#-j}
 
 function install_dpdk()
 {
@@ -164,7 +166,7 @@ if [ "$TESTSUITE" = 'test' ]; then
 
     export DISTCHECK_CONFIGURE_FLAGS="$OPTS"
     make distcheck ${JOBS} CFLAGS="${CFLAGS_FOR_OVS}" \
-        TESTSUITEFLAGS=${JOBS} RECHECK=yes
+        PYTESTFLAGS="-n${NPROC}" RECHECK=yes
 else
     build_ovs
     for testsuite in $TESTSUITE; do
@@ -184,8 +186,10 @@ else
             [ "$(cat /proc/sys/vm/nr_hugepages)" = '1024' ]
             export DPDK_EAL_OPTIONS="--lcores 0@1,1@1,2@1"
         fi
+        # PYTESTFLAGS is for testsuites that run through pytest ('check'),
+        # TESTSUITEFLAGS for the ones that run Autotest directly.
         $run_as_root make $testsuite TESTSUITEFLAGS="${JOBS} ${TEST_RANGE}" \
-                                     RECHECK=yes
+                                     PYTESTFLAGS="-n${NPROC}" RECHECK=yes
     done
 fi
 
