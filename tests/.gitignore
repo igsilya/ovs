@@ -76,6 +76,9 @@
 /testsuite
 /testsuite.dir/
 /testsuite.log
+/pytest.dir/
+/pytest.dir.recheck/
+/.pytest_cache/
 /test-lib
 /testsuite.tmp.orig
 /valgrind.[0-9]*
