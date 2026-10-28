@@ -54,8 +54,9 @@ m4_define([OVS_DPDK_START_OVSDB],
 /ovsdb_server|INFO|ovsdb-server (Open vSwitch)/d']])
    AT_CAPTURE_FILE([ovsdb-server.log])
 
-   dnl Initialize database.
-   AT_CHECK([ovs-vsctl --no-wait init $1])
+   dnl Initialize database.  OVS_PMD_CPU_MASK, if set, is the CPU mask for
+   dnl PMD threads, e.g., to not share CPUs with tests running in parallel.
+   AT_CHECK([ovs-vsctl --no-wait init ${OVS_PMD_CPU_MASK:+-- set Open_vSwitch . other_config:pmd-cpu-mask=$OVS_PMD_CPU_MASK} $1])
 ])
 
 

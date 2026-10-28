@@ -164,3 +164,51 @@ class TestHugepages:
         monkeypatch.setattr(hugepages, "hugepage_bytes",
                             lambda: 5 * hugepages.SLOT_BYTES + 1)
         assert hugepages.hugepage_slots(str(tmp_path)).count == 5
+
+
+class TestPMD:
+    def slots(self, *numbers):
+        return types.SimpleNamespace(numbers=list(numbers))
+
+    def test_pmd_only(self, monkeypatch):
+        from tests.system.lib import pmd
+
+        monkeypatch.setattr(pmd, "available_cpus", lambda: [0, 2, 4, 6])
+        # The first CPU is not used for polling.
+        assert pmd.polling_cpus() == [2, 4, 6]
+        assert pmd.pmd_environment(self.slots(0), base={}) \
+            == {"OVS_PMD_CPU_MASK": "0x4"}
+        monkeypatch.setattr(pmd, "available_cpus", lambda: [3])
+        assert pmd.pmd_environment(self.slots(0), base={}) \
+            == {"OVS_PMD_CPU_MASK": "0x8"}
+
+    def test_testpmd(self, monkeypatch):
+        from tests.system.lib import pmd
+
+        monkeypatch.setattr(pmd, "available_cpus", lambda: [0, 2, 4, 6])
+        base = {"DPDK_EAL_OPTIONS": "--lcores 0@1,1@1,2@1 --no-telemetry"}
+        assert pmd.pmd_environment(self.slots(0, 2), base=base) == {
+            "OVS_PMD_CPU_MASK": "0x4",
+            "DPDK_EAL_OPTIONS": "--no-telemetry --lcores 0@6,1@6,2@6",
+        }
+        assert pmd.pmd_environment(self.slots(1, 0), base={}) == {
+            "OVS_PMD_CPU_MASK": "0x10",
+            "DPDK_EAL_OPTIONS": "--lcores 0@2,1@2,2@2",
+        }
+
+    def test_busy_polling(self):
+        from tests.system.lib.pmd import busy_polling
+
+        assert not busy_polling(KERNEL)
+        assert not busy_polling(USERSPACE)
+        assert not busy_polling(DatapathConfig("userspace", False, True,
+                                               False, False))
+        assert busy_polling(DatapathConfig("userspace", False, False,
+                                           True, False))
+        assert busy_polling(DatapathConfig("userspace", False, False,
+                                           False, True))
+
+    def test_cpu_slots(self, tmp_path):
+        from tests.system.lib.pmd import cpu_slots, polling_cpus
+
+        assert cpu_slots(str(tmp_path)).count == len(polling_cpus())
