@@ -681,8 +681,9 @@ AT_CHECK_UNQUOTED([bash ovs-vsctl-bashcomp.bash test "set-manager "],
 ${MATCH}
 ])
 # filename completion on unix, punix.
-MATCH="$(PREPARE_MATCH_NOSPACE(testsuite.log))"
-AT_CHECK_UNQUOTED([bash ovs-vsctl-bashcomp.bash test "set-manager unix:test"],
+touch complete-me.sock
+MATCH="$(PREPARE_MATCH_NOSPACE(complete-me.sock))"
+AT_CHECK_UNQUOTED([bash ovs-vsctl-bashcomp.bash test "set-manager unix:compl"],
 [0], [dnl
 ${MATCH}
 ])
