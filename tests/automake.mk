@@ -597,8 +597,11 @@ PYTEST_PYFILES = \
 	tests/run-pytest.py \
 	tests/system/__init__.py \
 	tests/system/lib/__init__.py \
+	tests/system/lib/conntrack.py \
+	tests/system/lib/flows.py \
 	tests/system/lib/netns.py \
 	tests/system/lib/ovs.py \
+	tests/system/lib/ping.py \
 	tests/unit/__init__.py \
 	tests/unit/conftest.py \
 	tests/unit/test_autotest.py \
@@ -608,7 +611,8 @@ PYTEST_PYFILES = \
 	tests/unit/test_ovs.py \
 	tests/unit/test_process.py \
 	tests/unit/test_report.py \
-	tests/unit/test_run_pytest.py
+	tests/unit/test_run_pytest.py \
+	tests/unit/test_system_lib.py
 
 EXTRA_DIST += $(PYTEST_PYFILES) tests/pytest.ini
 PYCOV_CLEAN_FILES += $(PYTEST_PYFILES:.py=.py,cover)
