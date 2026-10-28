@@ -40,6 +40,27 @@ def builddir():
     return os.environ.get("abs_top_builddir") or srcdir()
 
 
+def autotest_shell():
+    """Return the shell for running Autotest testsuites.
+
+    The same as the Makefile uses, the SHELL that configure found, which
+    the Makefile passes in AUTOTEST_SHELL.  The testsuites may rely on it,
+    e.g., to be bash rather than dash.  When pytest is started by hand, it
+    is taken from the Makefile in the build directory.
+    """
+    shell = os.environ.get("AUTOTEST_SHELL")
+    if shell:
+        return shell
+    try:
+        with open(os.path.join(builddir(), "Makefile")) as f:
+            for line in f:
+                if line.startswith("SHELL = "):
+                    return line.split("=", 1)[1].strip()
+    except OSError:
+        pass
+    return "/bin/sh"
+
+
 def setup():
     """Configure the process environment for running OVS tests.
 
