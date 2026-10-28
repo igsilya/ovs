@@ -5015,7 +5015,7 @@ dnl Modify userspace conntrack fragmentation handling.
 DPCTL_MODIFY_FRAGMENTATION()
 
 dnl Ipv4 fragmentation connectivity check.
-NS_CHECK_EXEC([at_ns0], [ping -s 1600 -q -c 1 -i 0.3 -w 2 10.1.1.2 | FORMAT_PING], [0], [dnl
+NS_CHECK_EXEC([at_ns0], [ping -s 1600 -q -c 7 -i 0.3 -W 2 10.1.1.2 | FORMAT_PING], [0], [dnl
 7 packets transmitted, 0 received, 100% packet loss, time 0ms
 ])
 
@@ -5404,7 +5404,7 @@ dnl "connect: Cannot assign requested address"
 OVS_WAIT_UNTIL([ip netns exec at_ns0 ping6 -c 1 fc00::2])
 
 dnl Send an IPv6 fragment. Some time later, it should expire.
-NS_CHECK_EXEC([at_ns0], [ping6 -s 1600 -q -c 1 -i 0.3 -w 2 fc00::2 | FORMAT_PING], [0], [dnl
+NS_CHECK_EXEC([at_ns0], [ping6 -s 1600 -q -c 7 -i 0.3 -W 2 fc00::2 | FORMAT_PING], [0], [dnl
 7 packets transmitted, 0 received, 100% packet loss, time 0ms
 ])
 
