@@ -79,9 +79,10 @@ def pytest_configure(config):
     if dp.tso and dp.afxdp:
         raise pytest.UsageError("--tso and --afxdp are mutually exclusive")
 
-    # DPDK Autotest tests are in one xdist group and must run on one worker,
-    # which requires the 'loadgroup' distribution mode.  Workers have no
-    # 'numprocesses', so this is only checked in the controller.
+    # DPDK Autotest tests with hardware are in one xdist group and must run
+    # on one worker, which requires the 'loadgroup' distribution mode.
+    # Workers have no 'numprocesses', so this is only checked in the
+    # controller.
     if dp.dpdk and config.getoption("numprocesses", None) \
             and config.getoption("dist", "no") != "loadgroup":
         raise pytest.UsageError(

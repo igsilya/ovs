@@ -199,6 +199,14 @@ def test_server_restart(testsuite, rundir):
     assert os.path.exists(os.path.join(server.suite_dir, "2"))
 
 
+def test_matching_tests(testsuite):
+    from tests.lib.autotest import matching_tests
+
+    assert matching_tests(testsuite, "echo unexpected") == {2}
+    assert matching_tests(testsuite, "kill -9") == {6}
+    assert matching_tests(testsuite, "no such text") == set()
+
+
 def test_autotest_shell(monkeypatch, tmp_path):
     monkeypatch.setattr(env, "builddir", lambda: str(tmp_path))
     monkeypatch.setenv("AUTOTEST_SHELL", "/bin/bash")
