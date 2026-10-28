@@ -20,6 +20,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 from string import Template
 
@@ -1002,23 +1003,25 @@ conn prevent_unencrypted_vxlan
             # key must be the same as well.
             return
 
-        # Avoid deleting other files
-        path = os.path.abspath('/tmp/%s.p12' % name)
-        if not path.startswith('/tmp/'):
+        if '/' in name:
             vlog.err("Illegal certificate name '%s'!" % name)
             return
 
-        if run_command(['openssl', 'pkcs12', '-export',
-                       '-in', cert, '-inkey', key,
-                       '-out', path, '-name', name,
-                       '-passout', 'pass:'],
-                       "create p12 file from pem files")[0]:
-            return
+        # Use a private directory, so concurrent instances or other users
+        # can't interfere with the file.
+        with tempfile.TemporaryDirectory(prefix="ovs-monitor-ipsec-") as d:
+            path = os.path.join(d, '%s.p12' % name)
+            if run_command(['openssl', 'pkcs12', '-export',
+                           '-in', cert, '-inkey', key,
+                           '-out', path, '-name', name,
+                           '-passout', 'pass:'],
+                           "create p12 file from pem files")[0]:
+                return
 
-        # Load p12 file to the database
-        run_command(['pk12util', '-i', path, '-d', self.IPSEC_D, '-W', ''],
-                    "load p12 file to the NSS database")
-        os.remove(path)
+            # Load p12 file to the database
+            run_command(['pk12util', '-i', path, '-d', self.IPSEC_D,
+                         '-W', ''],
+                        "load p12 file to the NSS database")
 
     def _nss_delete_cert_and_key(self, name):
         # Delete certificate and private key
