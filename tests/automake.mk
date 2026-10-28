@@ -590,6 +590,7 @@ PYTEST_PYFILES = \
 	tests/lib/autotest.py \
 	tests/lib/cmd.py \
 	tests/lib/env.py \
+	tests/lib/modules.py \
 	tests/lib/ovs.py \
 	tests/lib/process.py \
 	tests/lib/report.py \
@@ -599,6 +600,7 @@ PYTEST_PYFILES = \
 	tests/unit/test_autotest.py \
 	tests/unit/test_autotest_server.py \
 	tests/unit/test_cmd.py \
+	tests/unit/test_modules.py \
 	tests/unit/test_ovs.py \
 	tests/unit/test_process.py \
 	tests/unit/test_report.py \
