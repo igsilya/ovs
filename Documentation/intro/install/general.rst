@@ -143,8 +143,9 @@ following to obtain better warnings:
 - flake8 (for Python code)
 
 - the python packages listed in "python/test_requirements.txt" (compatible
-  with pip). If they are installed, the pytest-based Python unit tests will
-  be run.
+  with pip). If they are installed, the tests run with pytest, see
+  :doc:`/topics/testing`.  Optionally, pytest-xdist for running tests in
+  parallel.
 
 You may find the ovs-dev script found in ``utilities/ovs-dev.py`` useful.
 
