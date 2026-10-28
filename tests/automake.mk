@@ -575,13 +575,15 @@ FLAKE8_PYFILES += $(CHECK_PYFILES)
 # pytest-based tests and their infrastructure.
 PYTEST_PYFILES = \
 	tests/__init__.py \
+	tests/conftest.py \
 	tests/lib/__init__.py \
 	tests/lib/cmd.py \
 	tests/lib/env.py \
+	tests/lib/report.py \
 	tests/run-pytest.py \
 	tests/unit/__init__.py \
-	tests/unit/conftest.py \
-	tests/unit/test_cmd.py
+	tests/unit/test_cmd.py \
+	tests/unit/test_report.py
 
 EXTRA_DIST += $(PYTEST_PYFILES) tests/pytest.ini
 PYCOV_CLEAN_FILES += $(PYTEST_PYFILES:.py=.py,cover)
