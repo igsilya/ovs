@@ -579,10 +579,12 @@ PYTEST_PYFILES = \
 	tests/lib/__init__.py \
 	tests/lib/cmd.py \
 	tests/lib/env.py \
+	tests/lib/process.py \
 	tests/lib/report.py \
 	tests/run-pytest.py \
 	tests/unit/__init__.py \
 	tests/unit/test_cmd.py \
+	tests/unit/test_process.py \
 	tests/unit/test_report.py
 
 EXTRA_DIST += $(PYTEST_PYFILES) tests/pytest.ini
