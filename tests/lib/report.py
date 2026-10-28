@@ -75,6 +75,19 @@ def _dir_name(nodeid):
     return name[:200]
 
 
+def passed(item):
+    """Return whether setup and call of test ``item`` passed so far.
+
+    Meant to be used in fixture teardown, e.g., to skip post-test checks
+    when the test already failed.
+    """
+    for when in ("setup", "call"):
+        rep = getattr(item, "_ovs_rep_" + when, None)
+        if rep is None or rep.failed:
+            return False
+    return True
+
+
 def failed(item):
     """Return whether setup or call of test ``item`` failed.
 
