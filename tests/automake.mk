@@ -635,6 +635,7 @@ PYTEST_PYFILES = \
 	tests/system/test_infra.py \
 	tests/system/test_ipsec.py \
 	tests/system/test_offloads.py \
+	tests/system/test_route.py \
 	tests/system/test_tso.py \
 	tests/unit/__init__.py \
 	tests/unit/conftest.py \
