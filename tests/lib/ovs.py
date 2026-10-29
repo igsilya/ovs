@@ -323,6 +323,22 @@ class OVSNode:
         if stderr_allow is not None:
             check_stderr(program, result.stderr, stderr_allow)
 
+    def stop_daemon(self, pidfile):
+        """Stop the daemon started with ``pidfile`` and wait for it to exit.
+
+        Raises:
+            OVSError: if the daemon is not known or doesn't stop cleanly.
+        """
+        __tracebackhide__ = True
+        for daemon in self._daemons:
+            if daemon[1] == pidfile:
+                self._daemons.remove(daemon)
+                problems = self._stop_daemon(*daemon)
+                if problems:
+                    raise OVSError("\n".join(problems))
+                return
+        raise OVSError("no daemon with pidfile %s" % pidfile)
+
     def _stop_daemon(self, program, pidfile, target):
         """Stop a daemon.  Returns a list of problems encountered."""
         try:
