@@ -20,6 +20,7 @@ import os
 import pytest
 
 from tests.lib import env, report, tools
+from tests.lib.debug import pytest_exception_interact  # noqa: F401
 from tests.lib.report import (  # noqa: F401
     pytest_runtest_makereport,
     pytest_runtest_teardown,
