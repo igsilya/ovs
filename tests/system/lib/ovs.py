@@ -27,6 +27,8 @@ namespaces), ``add_veth()``, ``add_internal()``, ``add_veth_bond()`` and
 ``add_ovs_tunnel()``.
 """
 
+import glob
+import os
 import re
 
 import pytest
@@ -293,7 +295,20 @@ class OVSNodeDPDK(OVSNodeUserspace):
     Veths are attached with the DPDK AF_XDP driver.  Tests running in
     parallel need hugepages and CPUs of their own, see
     ``tests.system.lib.hugepages`` and ``tests.system.lib.pmd``.
+
+    Args:
+        offload: Enable hardware offload, like
+            system-dpdk-offloads-macros.at.  ``add_veth()`` then uses VFs
+            of the physical NIC with PCI address ``pf_pci`` instead of veths,
+            see ``add_vf()``.
+        pf_pci: PCI address of the physical function, OVS_PF_PCI by
+            default.
     """
+
+    def __init__(self, test_dir, offload=False, pf_pci=None, **kwargs):
+        super().__init__(test_dir, **kwargs)
+        self.offload = offload
+        self.pf_pci = pf_pci or os.environ.get("OVS_PF_PCI")
 
     LOG_ALLOW = OVSNodeUserspace.LOG_ALLOW + [
         r"does not exist. The Open vSwitch kernel module is probably not "
@@ -308,10 +323,60 @@ class OVSNodeDPDK(OVSNodeUserspace):
     ]
 
     def db_init_args(self):
-        return super().db_init_args() + [
+        args = super().db_init_args() + [
             "--", "set", "Open_vSwitch", ".", "other_config:dpdk-init=true",
             # Only errors of the drivers, like OVS_DPDK_START_VSWITCHD.
             "'other_config:dpdk-extra=\"--log-level=pmd.*:error\"'"]
+        if self.offload:
+            args += ["other_config:hw-offload=true"]
+        return args
+
+    def check_logs(self, allow=()):
+        __tracebackhide__ = True
+        if self.offload:
+            allow = list(allow) + [r"mlx5_net: Failed to update link status: "]
+        super().check_logs(allow)
+
+    def add_veth(self, port, ns, bridge, ip, mac=None, gateway=None,
+                 ip_flags=""):
+        if self.offload:
+            self.add_vf(port, ns, bridge, ip, mac, gateway, ip_flags)
+        else:
+            super().add_veth(port, ns, bridge, ip, mac, gateway, ip_flags)
+
+    def add_vf(self, port, ns, bridge, ip, mac=None, gateway=None,
+               ip_flags=""):
+        """Connect namespace ``ns`` to ``bridge`` with a VF, like ADD_VF.
+
+        The VF with the index from the end of ``port`` ('client' is 0 and
+        'server' is 1) is moved to ``ns`` and renamed to ``port``, and its
+        representor is added to ``bridge`` as 'ovs-<port>'.  The VF is
+        returned to the root network namespace under its original name
+        when the node stops.  See ``add_veth()`` for the arguments.
+        """
+        m = re.search(r"([0-9]+)$", port)
+        index = {"client": 0, "server": 1}.get(port,
+                                                int(m.group(1)) if m else -1)
+        if not 0 <= index <= 5:
+            raise OVSError("no VF for port %s" % port)
+        vf = vf_netdev(self.pf_pci, index)
+        if vf is None:
+            raise OVSError("VF %d of %s not found" % (index, self.pf_pci))
+
+        run("ip link set %s down" % vf)
+        run("ip link set %s netns %s" % (vf, ns))
+        run("ip link set %s name %s" % (vf, port), ns=ns)
+        self.track(_VFRestore(ns, port, vf))
+        self.vsctl('add-port %s ovs-%s -- set interface ovs-%s '
+                   'external-ids:iface-id="%s" type=dpdk '
+                   'options:dpdk-devargs=%s,representor=vf%d'
+                   % (bridge, port, port, port, self.pf_pci, index))
+        run("ip addr add %s dev %s %s" % (ip, port, ip_flags), ns=ns)
+        run("ip link set dev %s up" % port, ns=ns)
+        run("ip link set dev %s address %s"
+            % (port, mac or "02:00:00:00:EC:0%d" % index), ns=ns)
+        if gateway:
+            run("ip route add default via %s" % gateway, ns=ns)
 
     def vswitchd_stderr_allow(self):
         # The EAL prints its messages to stderr.
@@ -347,3 +412,49 @@ class OVSNodeDPDK(OVSNodeUserspace):
                           % (socket, port))
         self.wait_for_log("VHOST_CONFIG: (%s) binding succeeded" % socket)
         return socket
+
+
+def vf_netdev(pf_pci, index):
+    """Return the network device of VF ``index`` of PF ``pf_pci``, or None.
+
+    Like ovs_get_vf_port.
+    """
+    net_dir = "/sys/bus/pci/devices/%s/virtfn%d/net" % (pf_pci, index)
+    try:
+        names = sorted(os.listdir(net_dir))
+    except OSError:
+        return None
+    return names[0] if names else None
+
+
+def vf_representor(pf_pci, index):
+    """Return the network device of the representor of VF ``index`` of PF
+    ``pf_pci``, or None.  Like ovs_get_representor_port.
+    """
+    for path in sorted(glob.glob("/sys/bus/pci/devices/%s/net/*/"
+                                 "phys_port_name" % pf_pci)):
+        try:
+            with open(path) as f:
+                if f.read().strip().endswith("vf%d" % index):
+                    return os.path.basename(os.path.dirname(path))
+        except OSError:
+            pass
+    return None
+
+
+class _VFRestore:
+    """Returns a VF to the root network namespace under its original name.
+    """
+
+    def __init__(self, ns, name, orig):
+        self.ns = ns
+        self.name = name
+        self.orig = orig
+
+    def close(self):
+        run("ip link set %s down" % self.name, ns=self.ns, rc=None,
+            stderr=True)
+        run("ip link set %s name %s" % (self.name, self.orig), ns=self.ns,
+            rc=None, stderr=True)
+        run("ip link set %s netns 1" % self.orig, ns=self.ns, rc=None,
+            stderr=True)

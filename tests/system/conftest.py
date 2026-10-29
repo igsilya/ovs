@@ -30,7 +30,8 @@ import pytest
 from tests.lib import env, report
 from tests.lib.modules import KernelModules
 from tests.system.lib.dpdk import TestPMD
-from tests.system.lib.features import check_requirements, datapath_config
+from tests.system.lib.features import check_requirements, \
+    datapath_config, dpdk_offload_check, isolated
 from tests.system.lib.hugepages import SLOT_BYTES, hugepage_bytes, \
     hugepage_slots
 from tests.system.lib.netns import IsolatedNetNS
@@ -120,19 +121,29 @@ def pytest_sessionfinish(session, exitstatus):
 
 
 def pytest_collection_modifyitems(config, items):
-    if system_tests_possible():
-        return
-    skip = pytest.mark.skip(reason="system tests require root privileges "
-                            "(CAP_SYS_ADMIN and CAP_NET_ADMIN) on Linux")
     system_dir = os.path.dirname(__file__)
-    for item in items:
-        if str(item.fspath).startswith(system_dir):
-            item.add_marker(skip)
+    if not system_tests_possible():
+        skip = pytest.mark.skip(reason="system tests require root "
+                                "privileges (CAP_SYS_ADMIN and "
+                                "CAP_NET_ADMIN) on Linux")
+        for item in items:
+            if str(item.fspath).startswith(system_dir):
+                item.add_marker(skip)
+    elif not isolated(datapath_config(config)):
+        # Tests that are not isolated run one at a time.
+        for item in items:
+            if str(item.fspath).startswith(system_dir):
+                item.add_marker(pytest.mark.xdist_group("serial"))
 
 
 @pytest.fixture
-def isolated_ns():
-    """Run the test in its own network and mount namespaces."""
+def isolated_ns(request):
+    """Run the test in its own network and mount namespaces, if the
+    datapath configuration allows it, see ``features.isolated()``.
+    """
+    if not isolated(datapath_config(request.config)):
+        yield None
+        return
     with IsolatedNetNS() as ns:
         yield ns
 
@@ -160,6 +171,11 @@ def ovs(request, test_dir, isolated_ns):
     else:
         if dp.dpdk and hugepage_bytes() < SLOT_BYTES:
             pytest.skip("not enough hugepages for DPDK")
+        if dp.dpdk and dp.offload:
+            # All the tests use VFs instead of veths.
+            reason = dpdk_offload_check()
+            if reason:
+                pytest.skip(reason)
         mask = None
         environment = {}
         if busy_polling(dp):
@@ -176,7 +192,8 @@ def ovs(request, test_dir, isolated_ns):
             environment = pmd_environment(cpus)
             mask = environment["OVS_PMD_CPU_MASK"]
         if dp.dpdk:
-            node = OVSNodeDPDK(test_dir, pmd_cpu_mask=mask)
+            node = OVSNodeDPDK(test_dir, offload=dp.offload,
+                               pmd_cpu_mask=mask)
             node.testpmd_eal_options = environment.get(
                 "DPDK_EAL_OPTIONS", os.environ.get("DPDK_EAL_OPTIONS", ""))
         else:

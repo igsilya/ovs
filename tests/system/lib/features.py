@@ -48,6 +48,16 @@ def datapath_config(config):
                           config.getoption("dpdk"))
 
 
+def isolated(config):
+    """Whether tests of ``DatapathConfig`` ``config`` run in isolated
+    network namespaces.
+
+    DPDK offload tests use VFs of a physical NIC, which are in the root
+    network namespace, so they run there, one at a time.
+    """
+    return not (config.dpdk and config.offload)
+
+
 def _sh(cmd):
     """Run a shell command, return (exit code, combined output)."""
     r = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE,
@@ -179,6 +189,30 @@ def _tool(name):
     return check
 
 
+def _dpdk_offload(config):
+    if not (config.datapath == "userspace" and config.dpdk
+            and config.offload):
+        return "DPDK offload specific test"
+    return dpdk_offload_check()
+
+
+def dpdk_offload_check():
+    """Like OVS_DPDK_OFFLOAD_PRE_CHECK: OVS_PF_PCI must be the PCI address of
+    a physical function with at least 6 VFs that have representors.
+    Returns a reason to skip or None.
+    """
+    from tests.system.lib.ovs import vf_netdev, vf_representor
+
+    pf = os.environ.get("OVS_PF_PCI", "")
+    if not re.match(r"^[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7]$",
+                    pf):
+        return "OVS_PF_PCI is not set to the PCI address of a NIC"
+    for i in range(6):
+        if vf_netdev(pf, i) is None or vf_representor(pf, i) is None:
+            return "%s needs at least 6 VFs with representors" % pf
+    return None
+
+
 def _xt(config):
     if shutil.which("iptables") is None and shutil.which("nft") is None:
         return "neither iptables nor nft is available"
@@ -207,8 +241,7 @@ FEATURES = {
                    afxdp=True),
     "dpdk": _only("DPDK specific test", datapath="userspace", dpdk=True,
                   offload=False),
-    "dpdk_offload": _only("DPDK offload specific test",
-                          datapath="userspace", dpdk=True, offload=True),
+    "dpdk_offload": _dpdk_offload,
     # Conntrack (CHECK_CONNTRACK_*).
     "conntrack": lambda config: None,
     "conntrack_nat": lambda config: None,

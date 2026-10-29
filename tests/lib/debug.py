@@ -45,7 +45,7 @@ def environment_lines(item):
         lines.append("Test directory: %s" % test_dir)
 
     commands = []
-    isolated = "isolated_ns" in item.funcargs
+    isolated = item.funcargs.get("isolated_ns") is not None
     if isolated:
         # The test process itself is in the namespaces of the test.
         commands.append("nsenter -t %d -n -m  # network and mount namespaces "
