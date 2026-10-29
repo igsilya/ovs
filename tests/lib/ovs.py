@@ -525,3 +525,23 @@ class OVSNodeDummy(OVSNode):
         self.add_bridge("br%d" % num, *args,
                         dpid="fedcba987654321%d" % num,
                         hwaddr="aa:55:aa:55:00:0%d" % num)
+
+    def add_of_ports(self, bridge, *numbers, pcap=False, pmd=False):
+        """Add dummy ports 'p<number>' with OpenFlow port numbers
+        ``numbers`` to ``bridge``, like Autotest's add_of_ports.
+
+        Args:
+            pcap: Record the received and transmitted packets of every port
+                in 'p<number>-rx.pcap' and 'p<number>-tx.pcap'.
+            pmd: Use ports polled by PMD threads, like add_pmd_of_ports.
+        """
+        args = []
+        for n in numbers:
+            args.append("-- add-port %s p%d -- set Interface p%d type=%s "
+                        "ofport_request=%d" % (bridge, n, n, "dummy-pmd"
+                                               if pmd else "dummy", n))
+            if pcap:
+                args.append("-- set Interface p%d options:rxq_pcap="
+                            "p%d-rx.pcap options:tx_pcap=p%d-tx.pcap"
+                            % (n, n, n))
+        self.vsctl(" ".join(args))

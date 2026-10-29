@@ -645,6 +645,7 @@ PYTEST_PYFILES = \
 	tests/unit/test_cmd.py \
 	tests/unit/test_debug.py \
 	tests/unit/test_modules.py \
+	tests/unit/test_ofproto_dpif.py \
 	tests/unit/test_ovs.py \
 	tests/unit/test_process.py \
 	tests/unit/test_report.py \
