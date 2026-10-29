@@ -7,8 +7,23 @@ CFLAGS_FOR_OVS="-g -O2"
 SPARSE_FLAGS=""
 EXTRA_OPTS="--enable-Werror"
 JOBS=${JOBS:-"-j4"}
-# Number of parallel jobs for pytest-xdist, e.g., '4' for '-j4'.
+# Number of CPUs, e.g., '4' for '-j4'.
 NPROC=${JOBS#-j}
+
+# Number of parallel pytest jobs for a testsuite.  The ratios to the number
+# of CPUs give the shortest run time on 4 CPU runners.  Unit tests are mostly
+# CPU bound.  System tests mostly wait for timers and for the kernel, but
+# with too many jobs they only slow each other down.  Busy polling threads
+# of AF_XDP and DPDK tests need a CPU per test.
+function pytest_jobs()
+{
+    case "$1" in
+        check-afxdp | check-dpdk*)                echo $((NPROC)) ;;
+        check-kernel | check-system-userspace)    echo $((NPROC * 8)) ;;
+        check-system-tso | check-offloads)        echo $((NPROC * 4)) ;;
+        *)                                        echo $((NPROC * 2)) ;;
+    esac
+}
 
 function install_dpdk()
 {
@@ -166,7 +181,7 @@ if [ "$TESTSUITE" = 'test' ]; then
 
     export DISTCHECK_CONFIGURE_FLAGS="$OPTS"
     make distcheck ${JOBS} CFLAGS="${CFLAGS_FOR_OVS}" \
-        PYTESTFLAGS="-n${NPROC}" RECHECK=yes
+        PYTESTFLAGS="-n$(pytest_jobs check)" RECHECK=yes
 else
     build_ovs
     for testsuite in $TESTSUITE; do
@@ -191,7 +206,7 @@ else
         # Testsuites run through pytest.  TEST_SELECTION splits a testsuite
         # into parts, TEST_RANGE does the same for the Autotest testsuite
         # in case it runs without pytest.
-        pytestflags="-n${NPROC}"
+        pytestflags="-n$(pytest_jobs $testsuite)"
         if [ -n "$TEST_SELECTION" ]; then
             pytestflags="${pytestflags} -k '${TEST_SELECTION}'"
         fi
