@@ -14,11 +14,12 @@
 
 """Tests for the parts of tests.system.lib that don't need root."""
 
+import os
 import types
 
 import pytest
 
-from tests.system.lib import features
+from tests.system.lib import features, retis
 from tests.system.lib.conntrack import ConntrackEntry, format_ct
 from tests.system.lib.features import DatapathConfig, check_requirements
 from tests.system.lib.ping import PingResult, parse_ping
@@ -212,3 +213,32 @@ class TestPMD:
         from tests.system.lib.pmd import cpu_slots, polling_cpus
 
         assert cpu_slots(str(tmp_path)).count == len(polling_cpus())
+
+
+class FakeRetisConfig:
+    def __init__(self, retis=False):
+        self.options = {"retis": retis}
+
+    def getoption(self, name, default=None):
+        return self.options.get(name, default)
+
+
+def test_retis_environment(monkeypatch):
+    monkeypatch.delenv("OVS_TEST_WITH_RETIS", raising=False)
+    monkeypatch.delenv("PYTEST_XDIST_WORKER_COUNT", raising=False)
+    assert not retis.enabled(FakeRetisConfig())
+    assert retis.autotest_environment(FakeRetisConfig(retis=True)) == {}
+
+    ino = os.stat("/proc/self/ns/net").st_ino
+    expected = "sk_buff.dev.nd_net.net.ns.inum == %d" % ino
+    assert retis.netns_filter() == expected
+    config = FakeRetisConfig(retis=True)
+    monkeypatch.setenv("PYTEST_XDIST_WORKER_COUNT", "1")
+    assert retis.autotest_environment(config) == {}
+    monkeypatch.setenv("PYTEST_XDIST_WORKER_COUNT", "4")
+    assert retis.autotest_environment(config) \
+        == {"OVS_TEST_RETIS_FILTER": expected}
+
+    # Same as 'make check-kernel OVS_TEST_WITH_RETIS=yes'.
+    monkeypatch.setenv("OVS_TEST_WITH_RETIS", "yes")
+    assert retis.enabled(FakeRetisConfig())

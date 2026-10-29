@@ -624,6 +624,7 @@ PYTEST_PYFILES = \
 	tests/system/lib/ovs.py \
 	tests/system/lib/ping.py \
 	tests/system/lib/pmd.py \
+	tests/system/lib/retis.py \
 	tests/system/test_autotest.py \
 	tests/system/test_infra.py \
 	tests/unit/__init__.py \

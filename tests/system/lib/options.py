@@ -33,3 +33,6 @@ def add_options(parser):
                     help="Use AF_XDP ports.")
     group.addoption("--dpdk", action="store_true", default=False,
                     help="Use DPDK.")
+    group.addoption("--retis", action="store_true", default=False,
+                    help="Trace packets of tests on the kernel datapath "
+                         "with retis.")
