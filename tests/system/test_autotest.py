@@ -45,7 +45,7 @@ import pytest
 
 from tests.lib import env
 from tests.lib.autotest import AutotestSuite, matching_tests
-from tests.system.lib.features import datapath_config
+from tests.system.lib.features import datapath_config, isolated
 from tests.system.lib.hugepages import hugepage_slots
 from tests.system.lib.pmd import busy_polling, cpu_slots, pmd_environment
 from tests.system.lib import retis
@@ -90,18 +90,12 @@ _SERIAL = [pytest.mark.xdist_group("serial")]
 _TESTPMD_TEST_MARKER = "dpdk-testpmd"
 
 
-def isolated(config):
-    """Whether Autotest tests run in isolated namespaces."""
-    dp = datapath_config(config)
-    return not (dp.dpdk and dp.offload)
-
-
 def suite(config):
     dp = datapath_config(config)
     if dp not in _suites:
         testsuite = os.path.join(env.srcdir(), "tests",
                                  autotest_suite_name(dp))
-        if not isolated(config):
+        if not isolated(datapath_config(config)):
             marks = _SERIAL
         elif dp.dpdk and os.path.isfile(testsuite):
             pci_tests = matching_tests(testsuite, _PCI_TEST_MARKER)
@@ -115,7 +109,7 @@ def suite(config):
         _suites[dp] = AutotestSuite(
             testsuite, os.path.join(env.builddir(), "tests"),
             marks=marks, setup=_KEEP_MODULES,
-            process_per_test=isolated(config))
+            process_per_test=isolated(datapath_config(config)))
     return _suites[dp]
 
 
@@ -131,7 +125,7 @@ def autotest_runner(request):
 
 def test_autotest(request, autotest_runner, number):
     dp = datapath_config(request.config)
-    if not isolated(request.config):
+    if not isolated(datapath_config(request.config)):
         suite(request.config).run(autotest_runner, number)
         return
 

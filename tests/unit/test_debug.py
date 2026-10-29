@@ -42,6 +42,7 @@ def test_environment_lines_isolated(tmp_path, monkeypatch):
     netns_dir.mkdir()
     (netns_dir / "at_ns0").write_text("")
     monkeypatch.setattr(debug, "NETNS_DIR", str(netns_dir))
-    text = "\n".join(debug.environment_lines(FakeItem(isolated_ns=None)))
+    text = "\n".join(debug.environment_lines(
+        FakeItem(isolated_ns=object())))
     assert "nsenter -t %d -n -m" % os.getpid() in text
     assert "ip netns exec at_ns0 sh" in text
