@@ -615,6 +615,7 @@ PYTEST_PYFILES = \
 	tests/system/conftest.py \
 	tests/system/lib/__init__.py \
 	tests/system/lib/conntrack.py \
+	tests/system/lib/dpdk.py \
 	tests/system/lib/features.py \
 	tests/system/lib/flows.py \
 	tests/system/lib/hugepages.py \

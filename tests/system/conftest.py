@@ -29,9 +29,13 @@ import pytest
 
 from tests.lib import env, report
 from tests.lib.modules import KernelModules
+from tests.system.lib.dpdk import TestPMD
 from tests.system.lib.features import check_requirements, datapath_config
+from tests.system.lib.hugepages import SLOT_BYTES, hugepage_bytes, \
+    hugepage_slots
 from tests.system.lib.netns import IsolatedNetNS
-from tests.system.lib.ovs import OVSNodeSystem, OVSNodeUserspace
+from tests.system.lib.ovs import OVSNodeDPDK, OVSNodeSystem, \
+    OVSNodeUserspace
 from tests.system.lib.pmd import busy_polling, cpu_slots, pmd_environment
 from tests.system.lib import retis
 
@@ -147,23 +151,37 @@ def ovs(request, test_dir, isolated_ns):
     if reason:
         pytest.skip(reason)
 
-    cpus = None
+    held = []
     if dp.datapath == "system":
         node = OVSNodeSystem(test_dir, offload=dp.offload)
         # Same as CHECK_CONNTRACK, may fail if conntrack is not loaded.
         node.run("sysctl -w net.netfilter.nf_conntrack_helper=0", rc=None,
                  stdout=True, stderr=True)
     else:
-        if dp.dpdk:
-            pytest.skip("DPDK is not supported by pytest-based tests yet")
+        if dp.dpdk and hugepage_bytes() < SLOT_BYTES:
+            pytest.skip("not enough hugepages for DPDK")
         mask = None
+        environment = {}
         if busy_polling(dp):
-            # A CPU of its own for the PMD threads, see tests.system.lib.pmd.
-            cpus = cpu_slots(os.path.join(env.builddir(), "tests", ".slots",
-                                          "cpus")).acquire()
-            mask = pmd_environment(cpus)["OVS_PMD_CPU_MASK"]
-        node = OVSNodeUserspace(test_dir, tso=dp.tso, afxdp=dp.afxdp,
-                                pmd_cpu_mask=mask)
+            # CPUs of its own for the PMD threads, and testpmd if the test
+            # uses it, see tests.system.lib.pmd.  With DPDK, hugepages too,
+            # always taken before CPUs to avoid deadlocks.
+            n = 2 if "testpmd" in request.fixturenames else 1
+            slots_dir = os.path.join(env.builddir(), "tests", ".slots")
+            if dp.dpdk:
+                held.append(hugepage_slots(
+                    os.path.join(slots_dir, "hugepages")).acquire(n))
+            cpus = cpu_slots(os.path.join(slots_dir, "cpus")).acquire(n)
+            held.append(cpus)
+            environment = pmd_environment(cpus)
+            mask = environment["OVS_PMD_CPU_MASK"]
+        if dp.dpdk:
+            node = OVSNodeDPDK(test_dir, pmd_cpu_mask=mask)
+            node.testpmd_eal_options = environment.get(
+                "DPDK_EAL_OPTIONS", os.environ.get("DPDK_EAL_OPTIONS", ""))
+        else:
+            node = OVSNodeUserspace(test_dir, tso=dp.tso, afxdp=dp.afxdp,
+                                    pmd_cpu_mask=mask)
 
     capture = None
     try:
@@ -180,5 +198,19 @@ def ovs(request, test_dir, isolated_ns):
     finally:
         if capture is not None:
             capture.stop()
-        if cpus is not None:
-            cpus.release()
+        for slots in reversed(held):
+            slots.release()
+
+
+@pytest.fixture
+def testpmd(request, ovs):
+    """dpdk-testpmd for DPDK tests, see ``tests.system.lib.dpdk.TestPMD``.
+
+    It is not started, the test starts it with the ports it needs.  The
+    'ovs' fixture reserves a CPU and hugepages for it.
+    """
+    if not isinstance(ovs, OVSNodeDPDK):
+        pytest.skip("testpmd requires --dpdk")
+    pmd = TestPMD(ovs, ovs.testpmd_eal_options)
+    yield pmd
+    pmd.stop()
