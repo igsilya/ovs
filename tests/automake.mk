@@ -603,12 +603,15 @@ PYTEST_PYFILES = \
 	tests/lib/env.py \
 	tests/lib/modules.py \
 	tests/lib/ovs.py \
+	tests/lib/ovsdb.py \
 	tests/lib/process.py \
 	tests/lib/report.py \
 	tests/lib/slots.py \
 	tests/lib/tools.py \
 	tests/ovsdb_cluster/__init__.py \
+	tests/ovsdb_cluster/conftest.py \
 	tests/ovsdb_cluster/test_autotest.py \
+	tests/ovsdb_cluster/test_cluster.py \
 	tests/run-pytest.py \
 	tests/system/__init__.py \
 	tests/system/conftest.py \
