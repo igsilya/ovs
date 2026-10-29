@@ -626,6 +626,7 @@ PYTEST_PYFILES = \
 	tests/system/lib/ping.py \
 	tests/system/lib/pmd.py \
 	tests/system/lib/retis.py \
+	tests/system/test_afxdp.py \
 	tests/system/test_autotest.py \
 	tests/system/test_conntrack.py \
 	tests/system/test_datapath.py \
