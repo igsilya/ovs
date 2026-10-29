@@ -97,3 +97,19 @@ def test_reports(tmp_path):
         "==789== ERROR SUMMARY: 5 errors from 1 contexts\n")
     assert tools.reports([str(tmp_path)], "valgrind") == [str(bad)]
     assert tools.reports([str(tmp_path)], "strace") == []
+
+
+def test_pycov(monkeypatch):
+    monkeypatch.setenv("COVERAGE", "coverage3")
+    monkeypatch.delenv("COVERAGE_FILE", raising=False)
+    assert tools.autotest_variables(FakeConfig()) == []
+    assert tools.autotest_variables(FakeConfig(pycov=True)) \
+        == ["PYTHON3=coverage3 run -p"]
+
+    monkeypatch.setattr(tools.shutil, "which", lambda program: None)
+    assert "not installed" in tools.configure(FakeConfig(pycov=True))
+
+    monkeypatch.setattr(tools.shutil, "which", lambda program: program)
+    assert tools.configure(FakeConfig(pycov=True)) is None
+    assert os.environ["COVERAGE_FILE"] \
+        == os.path.join(env.srcdir(), ".coverage")

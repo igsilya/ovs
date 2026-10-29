@@ -27,6 +27,11 @@ which the Makefile does.  Every program writes its output to
 in the directory of the test.  Tests don't fail because of the reported errors,
 but artifacts of all the tests are kept, and the files with errors are
 listed at the end of the run.
+
+With ``--pycov``, the Python scripts that Autotest tests run with
+``$PYTHON3`` run under coverage.py (the ``COVERAGE`` environment variable,
+'coverage' by default), which collects the data in ``COVERAGE_FILE``.
+This is what 'make check-pycov' uses.
 """
 
 import glob
@@ -58,6 +63,9 @@ def pytest_addoption(parser):
     for tool in sorted(_COMMANDS):
         group.addoption("--" + tool, action="store_true", default=False,
                         help="Run OVS programs under %s." % tool)
+    group.addoption("--pycov", action="store_true", default=False,
+                    help="Run Python scripts of Autotest tests under "
+                         "coverage.py.")
 
 
 def selected(config):
@@ -81,12 +89,34 @@ def wrappers_dir():
     return os.path.join(env.builddir(), "tests", "valgrind")
 
 
+def pycov_command():
+    return os.environ.get("COVERAGE", "coverage") + " run -p"
+
+
+def autotest_variables(config):
+    """Return variable assignments for the Autotest testsuites.
+
+    Autotest evaluates assignments given on its command line after loading
+    atlocal, so they override variables that atlocal sets, unlike the
+    environment.
+    """
+    if config.getoption("pycov"):
+        return ["PYTHON3=" + pycov_command()]
+    return []
+
+
 def configure(config):
     """Set up the environment for the selected tool, if any.
 
     Must run before ``env.setup()``, which puts ``AUTOTEST_PATH`` into
     ``PATH``.  Returns an error message, or None.
     """
+    if config.getoption("pycov"):
+        if shutil.which(pycov_command().split()[0]) is None:
+            return "coverage.py is not installed"
+        os.environ.setdefault("COVERAGE_FILE",
+                              os.path.join(env.srcdir(), ".coverage"))
+
     try:
         tool = selected(config)
     except ValueError as e:
