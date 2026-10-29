@@ -86,6 +86,15 @@ m4_define([ADD_VETH],
     ]
 )
 
+# OVS_WAIT_FOR_PORT_LIVE([bridge], [port])
+#
+# Wait for the OpenFlow port 'port' of 'bridge' to become live, e.g., after
+# its link goes up, so that the change doesn't show up later as a port status
+# message on OpenFlow connections.
+m4_define([OVS_WAIT_FOR_PORT_LIVE],
+    [OVS_WAIT_UNTIL([ovs-ofctl -O OpenFlow14 dump-ports-desc $1 | dnl
+                     grep -A2 "($2)" | grep -q "state: *LIVE"])])
+
 # ADD_VETH_BOND([ports], [namespace], [ovs-br], [bond], [mode], [ip_addr])
 #
 # Add a set of veth port pairs. Ports named in the list 'ports' will be added

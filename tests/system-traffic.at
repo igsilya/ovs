@@ -1782,6 +1782,9 @@ priority=10 in_port=2,ip,actions=clone(mod_dl_src(ae:c6:7e:54:8d:4d),mod_dl_dst(
 ])
 AT_CHECK([ovs-ofctl add-flows br0 flows.txt])
 
+dnl Port status changes would show up in the monitor output.
+OVS_WAIT_FOR_PORT_LIVE([br0], [ovs-p0])
+OVS_WAIT_FOR_PORT_LIVE([br0], [ovs-p1])
 AT_CHECK([ovs-ofctl monitor br0 65534 invalid_ttl --detach --no-chdir --pidfile 2> ofctl_monitor.log])
 NS_CHECK_EXEC([at_ns0], [ping -q -c 3 -i 0.3 -W 2 10.1.1.2 | FORMAT_PING], [0], [dnl
 3 packets transmitted, 3 received, 0% packet loss, time 0ms
@@ -3351,6 +3354,9 @@ priority=100,in_port=2,ct_state=+trk+est,udp,action=controller
 AT_CHECK([ovs-ofctl --bundle add-flows br0 flows.txt])
 
 AT_CAPTURE_FILE([ofctl_monitor.log])
+dnl Port status changes would show up in the monitor output.
+OVS_WAIT_FOR_PORT_LIVE([br0], [ovs-p0])
+OVS_WAIT_FOR_PORT_LIVE([br0], [ovs-p1])
 AT_CHECK([ovs-ofctl monitor br0 65534 invalid_ttl --detach --no-chdir --pidfile 2> ofctl_monitor.log])
 
 dnl Send an unsolicited reply from port 2. This should be dropped.
@@ -3397,6 +3403,9 @@ table=1,in_port=2,ct_state=+trk,udp,action=controller
 AT_CHECK([ovs-ofctl --bundle add-flows br0 flows.txt])
 
 AT_CAPTURE_FILE([ofctl_monitor.log])
+dnl Port status changes would show up in the monitor output.
+OVS_WAIT_FOR_PORT_LIVE([br0], [ovs-p0])
+OVS_WAIT_FOR_PORT_LIVE([br0], [ovs-p1])
 AT_CHECK([ovs-ofctl monitor br0 65534 invalid_ttl --detach --no-chdir --pidfile 2> ofctl_monitor.log])
 
 dnl Send an unsolicited reply from port 2. This should be dropped.
@@ -4791,6 +4800,9 @@ table=1,ip,action=controller
 AT_CHECK([ovs-ofctl --bundle replace-flows br0 flows.txt])
 
 AT_CAPTURE_FILE([ofctl_monitor.log])
+dnl Port status changes would show up in the monitor output.
+OVS_WAIT_FOR_PORT_LIVE([br0], [ovs-p0])
+OVS_WAIT_FOR_PORT_LIVE([br0], [ovs-p1])
 AT_CHECK([ovs-ofctl monitor br0 65534 invalid_ttl --detach --no-chdir --pidfile 2> ofctl_monitor.log])
 
 dnl 1. Send an ICMP port unreach reply for port 8738, without any previous request
@@ -6235,6 +6247,9 @@ table=1,priority=0,action=drop
 AT_CHECK([ovs-ofctl --bundle add-flows br0 flows.txt])
 
 AT_CAPTURE_FILE([ofctl_monitor.log])
+dnl Port status changes would show up in the monitor output.
+OVS_WAIT_FOR_PORT_LIVE([br0], [ovs-p0])
+OVS_WAIT_FOR_PORT_LIVE([br0], [ovs-p1])
 AT_CHECK([ovs-ofctl monitor br0 65534 invalid_ttl --detach --no-chdir --pidfile 2> ofctl_monitor.log])
 
 dnl Simple SCTP association local and remote single homing
