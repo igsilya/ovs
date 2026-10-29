@@ -618,6 +618,7 @@ PYTEST_PYFILES = \
 	tests/system/lib/features.py \
 	tests/system/lib/flows.py \
 	tests/system/lib/hugepages.py \
+	tests/system/lib/ipsec.py \
 	tests/system/lib/l7.py \
 	tests/system/lib/netns.py \
 	tests/system/lib/options.py \
@@ -632,6 +633,7 @@ PYTEST_PYFILES = \
 	tests/system/test_dpdk.py \
 	tests/system/test_dpdk_offloads.py \
 	tests/system/test_infra.py \
+	tests/system/test_ipsec.py \
 	tests/system/test_offloads.py \
 	tests/system/test_tso.py \
 	tests/unit/__init__.py \

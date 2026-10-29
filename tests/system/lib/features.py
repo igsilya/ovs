@@ -213,6 +213,16 @@ def dpdk_offload_check():
     return None
 
 
+def _libreswan(config):
+    """Like CHECK_LIBRESWAN."""
+    if "Libreswan" not in _sh("ipsec --version")[1]:
+        return "Libreswan is not installed"
+    for tool in ("certutil", "pk12util", "openssl"):
+        if shutil.which(tool) is None:
+            return "'%s' is not available" % tool
+    return None
+
+
 def _xt(config):
     if shutil.which("iptables") is None and shutil.which("nft") is None:
         return "neither iptables nor nft is available"
@@ -296,6 +306,7 @@ FEATURES = {
     "tc": _tool("tc"),
     "tcpdump": _tool("tcpdump"),
     "testpmd": _tool("dpdk-testpmd"),
+    "libreswan": _libreswan,
     "xt": _xt,
     "not_github_actions": _not_github_actions,
 }

@@ -184,31 +184,6 @@ m4_define([CHECK_ESP_TRAFFIC],
       AT_CHECK([cat $ovs_base/left/tcpdump.log | grep ESP], [0], [stdout], [stderr])
       AT_CHECK([cat $ovs_base/right/tcpdump.log | grep ESP], [0], [stdout], [stderr])])
 
-AT_SETUP([IPsec -- Libreswan (ipv4, geneve, defaultroute, psk)])
-AT_KEYWORDS([ipsec libreswan ipv4 geneve psk])
-dnl Note: Geneve test may not work on older kernels due to CVE-2020-25645
-dnl https://bugzilla.redhat.com/show_bug.cgi?id=1883988
-
-CHECK_LIBRESWAN()
-OVS_TRAFFIC_VSWITCHD_START()
-IPSEC_SETUP_UNDERLAY()
-
-dnl Set up dummy hosts
-IPSEC_ADD_NODE_LEFT(10.1.1.1, 10.1.1.2)
-IPSEC_ADD_NODE_RIGHT(10.1.1.2, 10.1.1.1)
-
-dnl Set up IPsec tunnel on 'left' host
-IPSEC_ADD_TUNNEL_LEFT([geneve],
-                      [options:remote_ip=10.1.1.2 options:psk=swordfish])
-
-dnl Set up IPsec tunnel on 'right' host
-IPSEC_ADD_TUNNEL_RIGHT([geneve],
-                       [options:remote_ip=10.1.1.1 options:psk=swordfish])
-CHECK_ESP_TRAFFIC
-
-OVS_TRAFFIC_VSWITCHD_STOP()
-AT_CLEANUP
-
 AT_SETUP([IPsec -- Libreswan (ipv4, geneve, localip, psk)])
 AT_KEYWORDS([ipsec libreswan ipv4 geneve psk])
 dnl Note: Geneve test may not work on older kernels due to CVE-2020-25645
