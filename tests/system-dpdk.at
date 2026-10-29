@@ -27,17 +27,6 @@ m4_define([ADD_VHOST_USER_CLIENT_PORT], [
     OVS_WAIT_UNTIL([grep "VHOST_CONFIG: ($3) reconnecting..." ovs-vswitchd.log])
 ])
 
-dnl ADD_VHOST_USER_PORT([bridge], [port], [socket])
-dnl Add a dpdk vhost-user port to a bridge and check this port is ready
-dnl to be used by looking at the logs.
-m4_define([ADD_VHOST_USER_PORT], [
-    AT_CHECK([ovs-vsctl add-port $1 $2 -- set Interface $2 type=dpdkvhostuser], [],
-             [stdout], [stderr])
-    OVS_WAIT_UNTIL([grep "VHOST_CONFIG: ($3) vhost-user server: socket created" ovs-vswitchd.log])
-    OVS_WAIT_UNTIL([grep "Socket $3 created for vhost-user port $2" ovs-vswitchd.log])
-    OVS_WAIT_UNTIL([grep "VHOST_CONFIG: ($3) binding succeeded" ovs-vswitchd.log])
-])
-
 dnl --------------------------------------------------------------------------
 dnl Check if EAL init is successful
 AT_SETUP([OVS-DPDK - EAL init])
@@ -174,62 +163,6 @@ AT_CLEANUP
 dnl --------------------------------------------------------------------------
 
 
-
-dnl --------------------------------------------------------------------------
-dnl Ping vhost-user port
-AT_SETUP([OVS-DPDK - ping vhost-user ports])
-AT_KEYWORDS([dpdk])
-OVS_DPDK_PRE_CHECK()
-OVS_DPDK_CHECK_TESTPMD()
-OVS_DPDK_START()
-
-dnl Add userspace bridge and attach it to OVS
-AT_CHECK([ovs-vsctl add-br br10 -- set bridge br10 datapath_type=netdev])
-ADD_VHOST_USER_PORT([br10], [dpdkvhostuser0], [$OVS_RUNDIR/dpdkvhostuser0])
-AT_CHECK([ovs-vsctl show], [], [stdout])
-
-dnl Set up namespaces
-ADD_NAMESPACES(ns1, ns2)
-
-dnl Add veth device
-ADD_VETH(tap1, ns2, br10, "172.31.110.12/24")
-
-OVS_DPDK_START_TESTPMD([--vdev="net_virtio_user,path=$OVS_RUNDIR/dpdkvhostuser0" \
-                        --vdev="net_tap0,iface=tap0"])
-
-OVS_WAIT_UNTIL([grep "virtio is now ready for processing" ovs-vswitchd.log])
-OVS_WAIT_UNTIL([ip link show dev tap0 | grep -qw LOWER_UP])
-
-dnl Move the tap devices to the namespaces
-AT_CHECK([ps aux | grep testpmd], [], [stdout], [stderr])
-AT_CHECK([ip link show], [], [stdout], [stderr])
-AT_CHECK([ip link set tap0 netns ns1], [], [stdout], [stderr])
-
-AT_CHECK([ip netns exec ns1 ip link show], [], [stdout], [stderr])
-AT_CHECK([ip netns exec ns1 ip link show | grep tap0], [], [stdout], [stderr])
-AT_CHECK([ip netns exec ns1 ip link set tap0 up], [], [stdout], [stderr])
-AT_CHECK([ip netns exec ns1 ip addr add 172.31.110.11/24 dev tap0], [],
-         [stdout], [stderr])
-
-AT_CHECK([ip netns exec ns1 ip link show], [], [stdout], [stderr])
-AT_CHECK([ip netns exec ns2 ip link show], [], [stdout], [stderr])
-AT_CHECK([ip netns exec ns1 ping -c 4 -I tap0 172.31.110.12], [], [stdout],
-         [stderr])
-
-OVS_DPDK_STOP_TESTPMD()
-
-dnl Wait for vhost-user handling the socket disconnect.
-OVS_WAIT_UNTIL([grep "vHost Device '$OVS_RUNDIR/dpdkvhostuser0' has been removed" ovs-vswitchd.log])
-
-dnl Clean up
-AT_CHECK([ovs-vsctl del-port br10 dpdkvhostuser0], [], [stdout], [stderr])
-OVS_DPDK_STOP_VSWITCHD(["dnl
-/VHOST_CONFIG: (.*dpdkvhostuser0) recvmsg failed/d
-/VHOST_CONFIG: (.*dpdkvhostuser0) failed to connect: No such file or directory/d
-/dpdkvhostuser ports are considered deprecated;  please migrate to dpdkvhostuserclient ports./d
-/failed to enumerate system datapaths: No such file or directory/d"])
-AT_CLEANUP
-dnl --------------------------------------------------------------------------
 
 dnl --------------------------------------------------------------------------
 dnl Ping vhost-user-client port

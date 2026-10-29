@@ -629,6 +629,7 @@ PYTEST_PYFILES = \
 	tests/system/test_autotest.py \
 	tests/system/test_conntrack.py \
 	tests/system/test_datapath.py \
+	tests/system/test_dpdk.py \
 	tests/system/test_infra.py \
 	tests/unit/__init__.py \
 	tests/unit/conftest.py \
