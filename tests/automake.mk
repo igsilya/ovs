@@ -316,12 +316,26 @@ HELGRIND = valgrind --log-file=helgrind.%p --tool=helgrind \
 	--suppressions=$(abs_top_srcdir)/tests/glibc.supp \
 	--suppressions=$(abs_top_srcdir)/tests/openssl.supp --num-callers=20
 EXTRA_DIST += tests/glibc.supp tests/openssl.supp
+# Runs tests under valgrind or helgrind through pytest, or the Autotest
+# testsuite directly if pytest is not available.
+#
+# $(call PYTEST_TOOL_CHECK,<tool>,<tool command>,<autotest testsuite>,
+#                          <pytest arguments>,<autotest flags>)
+PYTEST_TOOL_CHECK = \
+	VALGRIND='$(2)' $(PYTEST_RUN) \
+	    --basetemp='$(abs_top_builddir)/tests/pytest.dir' $(4) --$(1); \
+	rc=$$?; \
+	if test $$rc -ne 77; then exit $$rc; fi; \
+	echo "Running the Autotest testsuite without pytest."; \
+	$(SHELL) '$(3)' -C tests VALGRIND='$(2)' \
+	    AUTOTEST_PATH='tests/valgrind:$(AUTOTEST_PATH)' \
+	    -d $(TESTSUITEFLAGS) $(5); \
+	rc=$$?; \
+	echo "Output of $(1) can be found in tests/*.dir/*/$(1).*"; \
+	exit $$rc
+
 check-valgrind: all $(valgrind_wrappers) $(check_DATA)
-	$(SHELL) '$(TESTSUITE)' -C tests CHECK_VALGRIND=true VALGRIND='$(VALGRIND)' AUTOTEST_PATH='tests/valgrind:$(AUTOTEST_PATH)' -d $(TESTSUITEFLAGS)
-	@echo
-	@echo '----------------------------------------------------------------------'
-	@echo 'Valgrind output can be found in tests/testsuite.dir/*/valgrind.*'
-	@echo '----------------------------------------------------------------------'
+	$(call PYTEST_TOOL_CHECK,valgrind,$(VALGRIND),$(TESTSUITE),'$(abs_top_srcdir)/tests/unit')
 check-ovsdb-cluster-valgrind: all $(valgrind_wrappers) $(check_DATA)
 	$(SHELL) '$(OVSDB_CLUSTER_TESTSUITE)' -C tests CHECK_VALGRIND=true VALGRIND='$(VALGRIND)' AUTOTEST_PATH='tests/valgrind:$(AUTOTEST_PATH)' -d $(TESTSUITEFLAGS) -j1
 	@echo
@@ -329,45 +343,21 @@ check-ovsdb-cluster-valgrind: all $(valgrind_wrappers) $(check_DATA)
 	@echo 'Valgrind output can be found in tests/ovsdb-cluster-testsuite.dir/*/valgrind.*'
 	@echo '----------------------------------------------------------------------'
 check-kernel-valgrind: all $(valgrind_wrappers) $(check_DATA)
-	$(SHELL) '$(SYSTEM_KMOD_TESTSUITE)' -C tests VALGRIND='$(VALGRIND)' AUTOTEST_PATH='tests/valgrind:$(AUTOTEST_PATH)' -d $(TESTSUITEFLAGS) -j1
-	@echo
-	@echo '----------------------------------------------------------------------'
-	@echo 'Valgrind output can be found in tests/system-kmod-testsuite.dir/*/valgrind.*'
-	@echo '----------------------------------------------------------------------'
+	$(call PYTEST_TOOL_CHECK,valgrind,$(VALGRIND),$(SYSTEM_KMOD_TESTSUITE),'$(abs_top_srcdir)/tests/system' --datapath=system,-j1)
 check-userspace-valgrind: all $(valgrind_wrappers) $(check_DATA)
-	$(SHELL) '$(SYSTEM_USERSPACE_TESTSUITE)' -C tests VALGRIND='$(VALGRIND)' AUTOTEST_PATH='tests/valgrind:$(AUTOTEST_PATH)' -d $(TESTSUITEFLAGS) -j1
-	@echo
-	@echo '----------------------------------------------------------------------'
-	@echo 'Valgrind output can be found in tests/system-userspace-testsuite.dir/*/valgrind.*'
-	@echo '----------------------------------------------------------------------'
+	$(call PYTEST_TOOL_CHECK,valgrind,$(VALGRIND),$(SYSTEM_USERSPACE_TESTSUITE),'$(abs_top_srcdir)/tests/system' --datapath=userspace,-j1)
 check-afxdp-valgrind: all $(valgrind_wrappers) $(check_DATA)
-	$(SHELL) '$(SYSTEM_AFXDP_TESTSUITE)' -C tests VALGRIND='$(VALGRIND)' AUTOTEST_PATH='tests/valgrind:$(AUTOTEST_PATH)' -d $(TESTSUITEFLAGS) -j1
-	@echo
-	@echo '----------------------------------------------------------------------'
-	@echo 'Valgrind output can be found in tests/system-afxdp-testsuite.dir/*/valgrind.*'
-	@echo '----------------------------------------------------------------------'
+	$(call PYTEST_TOOL_CHECK,valgrind,$(VALGRIND),$(SYSTEM_AFXDP_TESTSUITE),'$(abs_top_srcdir)/tests/system' --datapath=userspace --afxdp,-j1)
 check-offloads-valgrind: all $(valgrind_wrappers) $(check_DATA)
-	$(SHELL) '$(SYSTEM_OFFLOADS_TESTSUITE)' -C tests VALGRIND='$(VALGRIND)' AUTOTEST_PATH='tests/valgrind:$(AUTOTEST_PATH)' -d $(TESTSUITEFLAGS) -j1
-	@echo
-	@echo '----------------------------------------------------------------------'
-	@echo 'Valgrind output can be found in tests/system-offloads-testsuite.dir/*/valgrind.*'
-	@echo '----------------------------------------------------------------------'
+	$(call PYTEST_TOOL_CHECK,valgrind,$(VALGRIND),$(SYSTEM_OFFLOADS_TESTSUITE),'$(abs_top_srcdir)/tests/system' --datapath=system --offload,-j1)
 check-dpdk-offloads-valgrind: all $(valgrind_wrappers) $(check_DATA)
-	$(SHELL) '$(SYSTEM_DPDK_OFFLOADS_TESTSUITE)' -C tests VALGRIND='$(VALGRIND)' AUTOTEST_PATH='tests/valgrind:$(AUTOTEST_PATH)' -d $(TESTSUITEFLAGS) -j1
-	@echo
-	@echo '----------------------------------------------------------------------'
-	@echo 'Valgrind output can be found in tests/system-dpdk-offloads-testsuite.dir/*/valgrind.*'
-	@echo '----------------------------------------------------------------------'
+	$(call PYTEST_TOOL_CHECK,valgrind,$(VALGRIND),$(SYSTEM_DPDK_OFFLOADS_TESTSUITE),'$(abs_top_srcdir)/tests/system' --loadgroup --datapath=userspace --dpdk --offload,-j1)
 check-tso-valgrind: all $(valgrind_wrappers) $(check_DATA)
-	$(SHELL) '$(SYSTEM_TSO_TESTSUITE)' -C tests VALGRIND='$(VALGRIND)' AUTOTEST_PATH='tests/valgrind:$(AUTOTEST_PATH)' -d $(TESTSUITEFLAGS) -j1
-	@echo
-	@echo '----------------------------------------------------------------------'
-	@echo 'Valgrind output can be found in tests/system-tso-testsuite.dir/*/valgrind.*'
-	@echo '----------------------------------------------------------------------'
+	$(call PYTEST_TOOL_CHECK,valgrind,$(VALGRIND),$(SYSTEM_TSO_TESTSUITE),'$(abs_top_srcdir)/tests/system' --datapath=userspace --tso,-j1)
 check-helgrind: all $(valgrind_wrappers) $(check_DATA)
-	-$(SHELL) '$(TESTSUITE)' -C tests CHECK_VALGRIND=true VALGRIND='$(HELGRIND)' AUTOTEST_PATH='tests/valgrind:$(AUTOTEST_PATH)' -d $(TESTSUITEFLAGS)
+	-$(call PYTEST_TOOL_CHECK,helgrind,$(HELGRIND),$(TESTSUITE),'$(abs_top_srcdir)/tests/unit')
 
-
+
 # OFTest support.
 
 check-oftest: all
@@ -604,6 +594,7 @@ PYTEST_PYFILES = \
 	tests/lib/process.py \
 	tests/lib/report.py \
 	tests/lib/slots.py \
+	tests/lib/tools.py \
 	tests/run-pytest.py \
 	tests/system/__init__.py \
 	tests/system/conftest.py \
@@ -631,7 +622,8 @@ PYTEST_PYFILES = \
 	tests/unit/test_report.py \
 	tests/unit/test_run_pytest.py \
 	tests/unit/test_slots.py \
-	tests/unit/test_system_lib.py
+	tests/unit/test_system_lib.py \
+	tests/unit/test_tools.py
 
 EXTRA_DIST += $(PYTEST_PYFILES) tests/pytest.ini
 PYCOV_CLEAN_FILES += $(PYTEST_PYFILES:.py=.py,cover)

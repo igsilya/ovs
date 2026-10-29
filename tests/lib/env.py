@@ -23,7 +23,7 @@ build directory defaults to the source directory.
 import os
 import sys
 
-_DEFAULT_AUTOTEST_PATH = "utilities:vswitchd:ovsdb:vtep:tests:ipsec"
+DEFAULT_AUTOTEST_PATH = "utilities:vswitchd:ovsdb:vtep:tests:ipsec"
 
 
 def srcdir():
@@ -55,7 +55,7 @@ def setup():
     if os.environ.get("OVS_TEST_ENV_READY"):
         return
 
-    autotest_path = os.environ.get("AUTOTEST_PATH", _DEFAULT_AUTOTEST_PATH)
+    autotest_path = os.environ.get("AUTOTEST_PATH", DEFAULT_AUTOTEST_PATH)
     dirs = []
     for d in autotest_path.split(":"):
         if d:
