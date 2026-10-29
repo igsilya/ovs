@@ -6151,6 +6151,8 @@ for i in `seq 1 255`; do
 ovs-vsctl --may-exist add-zone-tp $DP_TYPE zone=$i udp_first=$i udp_single=$i icmp_first=$i icmp_reply=$i;
 done
 AT_CHECK([ovs-vsctl --may-exist add-zone-tp $DP_TYPE zone=5 udp_first=1 udp_single=1 icmp_first=1 icmp_reply=1])
+dnl Existing datapath flows still refer to the old timeout policy.
+AT_CHECK([ovs-appctl revalidator/purge])
 
 dnl Send ICMP and UDP traffic
 NS_CHECK_EXEC([at_ns0], [ping -q -c 3 -i 0.3 -W 2 10.1.1.2 | FORMAT_PING], [0], [dnl
@@ -6190,6 +6192,8 @@ AT_CHECK([ovs-appctl dpctl/dump-conntrack | FORMAT_CT(10.1.1.2)], [0], [dnl
 
 dnl Set the timeout policy to default again.
 AT_CHECK([ovs-vsctl del-zone-tp $DP_TYPE zone=5])
+dnl Existing datapath flows still refer to the old timeout policy.
+AT_CHECK([ovs-appctl revalidator/purge])
 
 dnl Send ICMP and UDP traffic
 NS_CHECK_EXEC([at_ns0], [ping -q -c 3 -i 0.3 -W 2 10.1.1.2 | FORMAT_PING], [0], [dnl
