@@ -87,6 +87,15 @@ def _skip_on(reason, **conditions):
     return check
 
 
+def _only(reason, **conditions):
+    """Skip unless all ``conditions`` match the datapath configuration."""
+    def check(config):
+        if not all(getattr(config, k) == v for k, v in conditions.items()):
+            return reason
+        return None
+    return check
+
+
 def _system_only(check, reason):
     """Run ``check`` for the kernel datapath, skip for userspace."""
     def wrapper(config):
@@ -183,6 +192,23 @@ def _not_github_actions(config):
 
 
 FEATURES = {
+    # Tests of one datapath configuration, like the tests that are only in
+    # one of the Autotest system testsuites.
+    "kernel_datapath": _only("kernel datapath specific test",
+                             datapath="system", offload=False),
+    "tc_offload": _only("TC offload specific test",
+                        datapath="system", offload=True),
+    "userspace_datapath": _only("userspace datapath specific test",
+                                datapath="userspace", tso=False,
+                                afxdp=False, dpdk=False),
+    "tso": _only("userspace TSO specific test", datapath="userspace",
+                 tso=True),
+    "afxdp": _only("AF_XDP specific test", datapath="userspace",
+                   afxdp=True),
+    "dpdk": _only("DPDK specific test", datapath="userspace", dpdk=True,
+                  offload=False),
+    "dpdk_offload": _only("DPDK offload specific test",
+                          datapath="userspace", dpdk=True, offload=True),
     # Conntrack (CHECK_CONNTRACK_*).
     "conntrack": lambda config: None,
     "conntrack_nat": lambda config: None,
@@ -236,6 +262,7 @@ FEATURES = {
     "nc": _tool("nc"),
     "tc": _tool("tc"),
     "tcpdump": _tool("tcpdump"),
+    "testpmd": _tool("dpdk-testpmd"),
     "xt": _xt,
     "not_github_actions": _not_github_actions,
 }
