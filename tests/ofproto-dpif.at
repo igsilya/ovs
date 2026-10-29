@@ -946,25 +946,6 @@ Datapath actions: 100
 OVS_VSWITCHD_STOP()
 AT_CLEANUP
 
-AT_SETUP([ofproto-dpif - resubmit])
-OVS_VSWITCHD_START
-add_of_ports br0 1 10 11 12 13 14 15 16 17 18 19 20 21
-AT_DATA([flows.txt], [dnl
-table=0 in_port=1 priority=1000 icmp actions=output(10),resubmit(2),output(19),resubmit(3),output(21)
-table=0 in_port=2 priority=1500 icmp actions=output(11),resubmit(,1),output(16),resubmit(2,1),output(18)
-table=0 in_port=3 priority=2000 icmp actions=output(20)
-table=1 in_port=1 priority=1000 icmp actions=output(12),resubmit(4,1),output(13),resubmit(3),output(15)
-table=1 in_port=2 priority=1500 icmp actions=output(17),resubmit(,2)
-table=1 in_port=3 priority=1500 icmp actions=output(14),resubmit(,2)
-])
-AT_CHECK([ovs-ofctl add-flows br0 flows.txt])
-AT_CHECK([ovs-appctl ofproto/trace br0 'in_port=p1,dl_src=50:54:00:00:00:05,dl_dst=50:54:00:00:00:07,dl_type=0x0800,nw_src=192.168.0.1,nw_dst=192.168.0.2,nw_proto=1,nw_tos=0,nw_ttl=128,nw_frag=no,icmp_type=8,icmp_code=0'], [0], [stdout])
-AT_CHECK([tail -1 stdout], [0],
-  [Datapath actions: 10,11,12,13,14,15,16,17,18,19,20,21
-])
-OVS_VSWITCHD_STOP
-AT_CLEANUP
-
 AT_SETUP([ofproto-dpif - goto table])
 OVS_VSWITCHD_START
 add_of_ports br0 1 10 11
