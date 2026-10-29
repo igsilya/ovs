@@ -48,6 +48,7 @@ from tests.lib.autotest import AutotestSuite, matching_tests
 from tests.system.lib.features import datapath_config
 from tests.system.lib.hugepages import hugepage_slots
 from tests.system.lib.pmd import busy_polling, cpu_slots, pmd_environment
+from tests.system.lib import retis
 
 # Ignore 'modprobe -r' in tests, the modules are managed by the session.
 _KEEP_MODULES = r"""
@@ -135,8 +136,10 @@ def test_autotest(request, autotest_runner, number):
         return
 
     request.getfixturevalue("isolated_ns")
+    environment = retis.autotest_environment(request.config)
     if not busy_polling(dp):
-        suite(request.config).run(autotest_runner, number)
+        suite(request.config).run(autotest_runner, number,
+                                  env=environment or None)
         return
 
     # One CPU (and hugepage slot) for OVS, one more for testpmd.
@@ -150,8 +153,8 @@ def test_autotest(request, autotest_runner, number):
                 os.path.join(slots_dir, "hugepages")).acquire(n))
         cpus = cpu_slots(os.path.join(slots_dir, "cpus")).acquire(n)
         held.append(cpus)
-        suite(request.config).run(autotest_runner, number,
-                                  env=pmd_environment(cpus))
+        environment.update(pmd_environment(cpus))
+        suite(request.config).run(autotest_runner, number, env=environment)
     finally:
         for slots in reversed(held):
             slots.release()

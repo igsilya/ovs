@@ -323,11 +323,20 @@ m4_ifndef([AT_FAIL_IF],
     && exit 99 || exit 0], [0], [ignore], [ignore])])])
 
 dnl Start retis to track all the traffic passing through OVS.
+dnl OVS_TEST_RETIS_FILTER is an optional retis meta filter, which limits the
+dnl capture to one network namespace when tests run in parallel.  The OVS
+dnl collector is not used then, since retis can't tell which of the
+dnl ovs-vswitchd processes belongs to the test.
 m4_define([RETIS_CHECK_AND_RUN],
   [if test "$OVS_TEST_WITH_RETIS" = yes && retis --version > /dev/null; then
        on_exit 'retis sort --utc retis.data > retis.sorted'
+       retis_collectors=--ovs-track
+       test -z "$OVS_TEST_RETIS_FILTER" || \
+           retis_collectors="--collectors skb-tracking,skb,skb-drop,ct,dev,ns"
        OVS_DAEMONIZE([retis -p ifdump collect --utc --allow-system-changes \
-                          --ovs-track --out --print 2>retis.err 1>retis.log],
+                          $retis_collectors --out --print \
+                          ${OVS_TEST_RETIS_FILTER:+-m "$OVS_TEST_RETIS_FILTER"} \
+                          2>retis.err 1>retis.log],
                      [retis.pid])
        OVS_WAIT_UNTIL([grep -q 'loaded' retis.err])
    fi])

@@ -33,6 +33,7 @@ from tests.system.lib.features import check_requirements, datapath_config
 from tests.system.lib.netns import IsolatedNetNS
 from tests.system.lib.ovs import OVSNodeSystem, OVSNodeUserspace
 from tests.system.lib.pmd import busy_polling, cpu_slots, pmd_environment
+from tests.system.lib import retis
 
 # Kernel modules loaded for the whole session: (name, required).
 _SYSTEM_MODULES = [
@@ -79,6 +80,9 @@ def pytest_configure(config):
                                 "--datapath=userspace")
     if dp.tso and dp.afxdp:
         raise pytest.UsageError("--tso and --afxdp are mutually exclusive")
+    error = retis.configure(config)
+    if error:
+        raise pytest.UsageError(error)
 
     # DPDK Autotest tests with hardware are in one xdist group and must run
     # on one worker, which requires the 'loadgroup' distribution mode.
@@ -161,13 +165,20 @@ def ovs(request, test_dir, isolated_ns):
         node = OVSNodeUserspace(test_dir, tso=dp.tso, afxdp=dp.afxdp,
                                 pmd_cpu_mask=mask)
 
+    capture = None
     try:
         with node:
             node.add_bridge("br0")
+            if dp.datapath == "system" and retis.enabled(request.config):
+                capture = retis.Capture(
+                    node, test_dir, retis.netns_filter()
+                    if retis.parallel(request.config) else None)
             yield node
             marker = request.node.get_closest_marker("log_allow")
             node.stop(check=report.passed(request.node),
                       log_allow=marker.args if marker else ())
     finally:
+        if capture is not None:
+            capture.stop()
         if cpus is not None:
             cpus.release()
