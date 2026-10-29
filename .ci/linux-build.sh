@@ -7,8 +7,31 @@ CFLAGS_FOR_OVS="-g -O2"
 SPARSE_FLAGS=""
 EXTRA_OPTS="--enable-Werror"
 JOBS=${JOBS:-"-j4"}
-# Number of parallel jobs for pytest-xdist, e.g., '4' for '-j4'.
+# Number of CPUs, e.g., '4' for '-j4'.
 NPROC=${JOBS#-j}
+
+# Number of parallel pytest jobs for a testsuite.  The ratios to the number
+# of CPUs give the shortest run time on 4 CPU runners.  Unit tests are mostly
+# CPU bound, even more so with sanitizers.  System tests mostly wait for
+# timers and for the kernel, but with too many jobs they only slow each other
+# down.  Busy polling threads of AF_XDP and DPDK tests need a CPU per test.
+function pytest_jobs()
+{
+    case "$1" in
+        check-afxdp | check-dpdk*)                echo $((NPROC)) ;;
+        check-kernel | check-system-userspace)    echo $((NPROC * 8)) ;;
+        check-system-tso | check-offloads)        echo $((NPROC * 4)) ;;
+        *)
+            # Sanitizers make the tests much slower, and more of them fail
+            # on timeouts with too many jobs.
+            if [ -n "$SANITIZERS" ]; then
+                echo $((NPROC))
+            else
+                echo $((NPROC * 2))
+            fi
+            ;;
+    esac
+}
 
 function install_dpdk()
 {
@@ -166,7 +189,7 @@ if [ "$TESTSUITE" = 'test' ]; then
 
     export DISTCHECK_CONFIGURE_FLAGS="$OPTS"
     make distcheck ${JOBS} CFLAGS="${CFLAGS_FOR_OVS}" \
-        PYTESTFLAGS="-n${NPROC}" RECHECK=yes
+        PYTESTFLAGS="-n$(pytest_jobs check)" RECHECK=yes
 else
     build_ovs
     for testsuite in $TESTSUITE; do
@@ -188,8 +211,10 @@ else
             [ "$(cat /proc/sys/vm/nr_hugepages)" = '4096' ]
             export DPDK_EAL_OPTIONS="--lcores 0@1,1@1,2@1"
         fi
+        pytest_flags="-n$(pytest_jobs $testsuite)"
         $run_as_root make $testsuite TESTSUITEFLAGS="${JOBS}" \
-                                     PYTESTFLAGS="-n${NPROC}" RECHECK=yes
+                                     PYTESTFLAGS="${pytest_flags}" \
+                                     RECHECK=yes
     done
 fi
 
