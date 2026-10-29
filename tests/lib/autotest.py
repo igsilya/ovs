@@ -36,6 +36,7 @@ import subprocess
 
 import pytest
 
+from tests.lib import tools
 from tests.lib.cmd import log_line, make_env
 
 # Protocol marker printed by the server loop.
@@ -385,7 +386,8 @@ class AutotestSuite:
 
     def runner(self, request):
         """Generator for a session-scoped fixture that runs the tests."""
-        runner = _Runner(self, request.config.getoption("keep_artifacts"))
+        runner = _Runner(self, request.config.getoption("keep_artifacts"),
+                         tools.autotest_variables(request.config))
         yield runner
         runner.close()
 
@@ -416,13 +418,13 @@ class AutotestSuite:
 class _Runner:
     """Starts an AutotestServer when needed and restarts it if it dies."""
 
-    def __init__(self, suite, keep):
+    def __init__(self, suite, keep, variables=()):
         worker = os.environ.get("PYTEST_XDIST_WORKER", "pytest")
         self.name = "%s.%s" % (os.path.basename(suite.testsuite), worker)
         self.suite = suite
         self.keep = keep
         # With -d, Autotest keeps directories of successful tests.
-        self.flags = ["-d"] if keep else []
+        self.flags = (["-d"] if keep else []) + list(variables)
         self.server = None
         self.failed = False
 

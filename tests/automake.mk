@@ -239,13 +239,21 @@ AUTOTEST_RUN = \
 # The Autotest testsuite runs through pytest (tests/unit/test_autotest.py)
 # together with the pytest-based tests.  If pytest is not available, the
 # Autotest testsuite runs directly, as before.
-check-local:
+#
+# $(call PYTEST_UNIT_CHECK,<pytest arguments>,<autotest arguments>)
+PYTEST_UNIT_CHECK = \
 	$(PYTEST_RUN) --basetemp='$(abs_top_builddir)/tests/pytest.dir' \
-	    '$(abs_top_srcdir)/tests/unit'; \
+	    '$(abs_top_srcdir)/tests/unit' $(1); \
 	rc=$$?; \
 	if test $$rc -ne 77; then exit $$rc; fi; \
 	echo "Running the Autotest testsuite without pytest."; \
-	$(AUTOTEST_RUN)
+	set $(SHELL) '$(TESTSUITE)' -C tests AUTOTEST_PATH=$(AUTOTEST_PATH) $(2); \
+	"$$@" $(TESTSUITEFLAGS) || \
+	(test -z "$$(find $(TESTSUITE_DIR) -name 'sanitizers.*')" && \
+	 test X'$(RECHECK)' = Xyes && "$$@" --recheck)
+
+check-local:
+	$(call PYTEST_UNIT_CHECK)
 
 # Runs the Autotest testsuite directly, without pytest.
 check-autotest: all
@@ -257,7 +265,10 @@ check-autotest: all
 COVERAGE = coverage
 COVERAGE_FILE='$(abs_srcdir)/.coverage'
 check-pycov: all clean-pycov
-	PYTHONDONTWRITEBYTECODE=yes COVERAGE_FILE=$(COVERAGE_FILE) PYTHON3='$(COVERAGE) run -p' $(SHELL) '$(TESTSUITE)' -C tests AUTOTEST_PATH=$(AUTOTEST_PATH) $(TESTSUITEFLAGS)
+	PYTHONDONTWRITEBYTECODE=yes COVERAGE='$(COVERAGE)' \
+	COVERAGE_FILE=$(COVERAGE_FILE); \
+	export PYTHONDONTWRITEBYTECODE COVERAGE COVERAGE_FILE; \
+	$(call PYTEST_UNIT_CHECK,--pycov,PYTHON3='$(COVERAGE) run -p')
 	@cd $(srcdir) && $(COVERAGE) combine && COVERAGE_FILE=$(COVERAGE_FILE) $(COVERAGE) annotate
 	@echo
 	@echo '----------------------------------------------------------------------'
@@ -276,8 +287,7 @@ LCOV_OPTS = -b $(abs_top_builddir) -d $(abs_top_builddir) -q -c --rc lcov_branch
 GENHTML_OPTS = -q --branch-coverage --num-spaces 4
 check-lcov: all $(check_DATA) clean-lcov
 	find . -name '*.gcda' | xargs -n1 rm -f
-	-set $(SHELL) '$(TESTSUITE)' -C tests AUTOTEST_PATH=$(AUTOTEST_PATH); \
-	"$$@" $(TESTSUITEFLAGS) || (test X'$(RECHECK)' = Xyes && "$$@" --recheck)
+	-$(call PYTEST_UNIT_CHECK)
 	$(MKDIR_P) tests/lcov
 	lcov $(LCOV_OPTS) -o tests/lcov/coverage.info
 	genhtml $(GENHTML_OPTS) -o tests/lcov tests/lcov/coverage.info
