@@ -14,7 +14,12 @@
 
 """Common pytest configuration for all OVS tests."""
 
-from tests.lib import env, report
+import glob
+import os
+
+import pytest
+
+from tests.lib import env, report, tools
 from tests.lib.report import (  # noqa: F401
     pytest_runtest_makereport,
     pytest_runtest_teardown,
@@ -27,8 +32,33 @@ pytest_plugins = ("pytester",)
 
 def pytest_addoption(parser):
     report.pytest_addoption(parser)
+    tools.pytest_addoption(parser)
     system_options.add_options(parser)
 
 
 def pytest_configure(config):
+    error = tools.configure(config)
+    if error:
+        raise pytest.UsageError(error)
     env.setup()
+
+
+def pytest_terminal_summary(terminalreporter, config):
+    tool = tools.selected(config)
+    if tool is None:
+        return
+    # Native tests write the outputs into their directories under the base
+    # temporary directory, Autotest tests into the test directories of the
+    # testsuites.
+    dirs = glob.glob(os.path.join(env.builddir(), "tests", "*.dir"))
+    if config.option.basetemp:
+        dirs.append(os.path.abspath(config.option.basetemp))
+    reports = tools.reports(sorted(set(dirs)), tool)
+    terminalreporter.section(tool)
+    if reports:
+        terminalreporter.write_line("%d %s output(s) with errors:"
+                                    % (len(reports), tool))
+        for path in reports:
+            terminalreporter.write_line("  " + path)
+    else:
+        terminalreporter.write_line("No errors reported by %s." % tool)
