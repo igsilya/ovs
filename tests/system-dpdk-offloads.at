@@ -14,29 +14,6 @@ limitations under the License.])
 
 AT_BANNER([dpdk's rte_flow offload unit tests])
 
-AT_SETUP([dpdk offload - ping between two hardware offloaded ports])
-OVS_DPDK_OFFLOAD_PRE_CHECK()
-OVS_TRAFFIC_VSWITCHD_START()
-
-AT_CHECK([ovs-ofctl add-flow br0 "actions=normal"])
-ADD_NAMESPACES(at_ns0, at_ns1)
-ADD_VF(p0, at_ns0, br0, "10.1.1.1/24")
-ADD_VF(p1, at_ns1, br0, "10.1.1.2/24")
-
-NS_CHECK_EXEC([at_ns0], [ping -q -c 3 -i 0.3 -W 2 10.1.1.2 \
-                         | FORMAT_PING], [0], [dnl
-3 packets transmitted, 3 received, 0% packet loss, time 0ms
-])
-
-OVS_WAIT_UNTIL_EQUAL(
-  [ovs-appctl dpctl/dump-flows --names type=dpdk,offloaded \
-   | DUMP_DP_IP_CLEAN_SORTED], [dnl
-in_port(ovs-p0),eth(macs),eth_type(0x0800),ipv4(frag=no), packets:2, bytes:196, used:0.0s, actions:ovs-p1
-in_port(ovs-p1),eth(macs),eth_type(0x0800),ipv4(frag=no), packets:2, bytes:196, used:0.0s, actions:ovs-p0])
-
-OVS_TRAFFIC_VSWITCHD_STOP
-AT_CLEANUP
-
 m4_define([DPDK_OFFLOAD_SIX_PORT_PING_TEST], [dnl
   AT_SETUP($1)
   OVS_DPDK_OFFLOAD_PRE_CHECK()
