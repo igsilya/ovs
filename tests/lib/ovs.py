@@ -38,7 +38,7 @@ import re
 import signal
 
 from tests.lib import cmd
-from tests.lib.cmd import ctl_timeout, log_line, wait_while
+from tests.lib.cmd import ctl_timeout, log_line, wait_until, wait_while
 from tests.lib.env import srcdir
 from tests.lib.process import BackgroundProcess, process_alive
 
@@ -399,6 +399,19 @@ class OVSNode:
         self.start_daemon("ovs-vswitchd", *self.vswitchd_options(),
                           target="ovs-vswitchd",
                           stderr_allow=self.vswitchd_stderr_allow())
+
+    def wait_for_log(self, text, program="ovs-vswitchd"):
+        """Wait for ``text`` to appear in the log of ``program``."""
+        path = os.path.join(self.test_dir, program + ".log")
+
+        def logged():
+            try:
+                with open(path, errors="replace") as f:
+                    return text in f.read()
+            except OSError:
+                return False
+
+        wait_until(logged, description="'%s' in %s.log" % (text, program))
 
     def check_logs(self, allow=()):
         """Check the daemon logs of this node.  See ``check_logs()``."""

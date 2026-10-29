@@ -19,8 +19,10 @@
  - ``OVSNodeUserspace`` -- the userspace datapath, like
    system-userspace-macros.at (and system-tso-macros.at with
    ``tso=True``, system-afxdp-macros.at with ``afxdp=True``).
+ - ``OVSNodeDPDK`` -- the userspace datapath with DPDK, like
+   system-dpdk-macros.at.
 
-Both provide helpers for building topologies: ``netns()`` (named network
+All provide helpers for building topologies: ``netns()`` (named network
 namespaces), ``add_veth()``, ``add_internal()``, ``add_veth_bond()`` and
 ``add_ovs_tunnel()``.
 """
@@ -67,6 +69,10 @@ class SystemNode(OVSNode):
         """Return the OVS interface type for veth ports, or None."""
         return None
 
+    def port_options(self, ovs_port):
+        """Return additional settings for veth port ``ovs_port``."""
+        return ""
+
     def add_veth(self, port, ns, bridge, ip, mac=None, gateway=None,
                  ip_flags=""):
         """Connect namespace ``ns`` to ``bridge`` with a veth pair.
@@ -91,6 +97,8 @@ class SystemNode(OVSNode):
         settings = 'external-ids:iface-id="%s"' % port
         if self.port_type():
             settings += " type=%s" % self.port_type()
+        if self.port_options(ovs_port):
+            settings += " " + self.port_options(ovs_port)
         self.vsctl("add-port %s %s -- set interface %s %s"
                    % (bridge, ovs_port, ovs_port, settings))
         run("ip addr add %s dev %s %s" % (ip, port, ip_flags), ns=ns)
@@ -277,3 +285,65 @@ class OVSNodeUserspace(SystemNode):
         for feature in features:
             run("ethtool -K %s %s" % (port, feature), ns=ns, stdout=True,
                 stderr=True)
+
+
+class OVSNodeDPDK(OVSNodeUserspace):
+    """OVS with the userspace datapath and DPDK, like system-dpdk-macros.at.
+
+    Veths are attached with the DPDK AF_XDP driver.  Tests running in
+    parallel need hugepages and CPUs of their own, see
+    ``tests.system.lib.hugepages`` and ``tests.system.lib.pmd``.
+    """
+
+    LOG_ALLOW = OVSNodeUserspace.LOG_ALLOW + [
+        r"does not exist. The Open vSwitch kernel module is probably not "
+        r"loaded.",
+        r"does not support MTU configuration,",
+        r"EAL: No (available|free) .*hugepages reported",
+        r"Failed to enable flow control",
+        r"ice_vsi_config_outer_vlan_stripping\(\): Single VLAN mode \(SVM\)"
+        r" does not support qinq",
+        r"Rx checksum offload is not supported on",
+        r"TELEMETRY: No legacy callbacks, legacy socket not created",
+    ]
+
+    def db_init_args(self):
+        return super().db_init_args() + [
+            "--", "set", "Open_vSwitch", ".", "other_config:dpdk-init=true",
+            # Only errors of the drivers, like OVS_DPDK_START_VSWITCHD.
+            "'other_config:dpdk-extra=\"--log-level=pmd.*:error\"'"]
+
+    def vswitchd_stderr_allow(self):
+        # The EAL prints its messages to stderr.
+        return None
+
+    def create_node(self, name, node_cls=None, ns=None, **kwargs):
+        pytest.skip("DPDK nodes can't have child nodes")
+
+    def port_type(self):
+        return "dpdk"
+
+    def port_options(self, ovs_port):
+        port = ovs_port[len("ovs-"):]
+        return "options:dpdk-devargs=net_af_xdp%s,iface=%s" % (port,
+                                                                ovs_port)
+
+    def configure_veth_offloads(self, port, ns=None):
+        for feature in ("tx off", "txvlan off"):
+            run("ethtool -K %s %s" % (port, feature), ns=ns, stdout=True,
+                stderr=True)
+
+    def add_vhost_user_port(self, bridge, port):
+        """Add vhost-user server port ``port``, like ADD_VHOST_USER_PORT.
+
+        Returns the path of its socket.
+        """
+        socket = "%s/%s" % (self.env["OVS_RUNDIR"], port)
+        self.vsctl("add-port %s %s -- set Interface %s type=dpdkvhostuser"
+                   % (bridge, port, port))
+        self.wait_for_log("VHOST_CONFIG: (%s) vhost-user server: socket "
+                          "created" % socket)
+        self.wait_for_log("Socket %s created for vhost-user port %s"
+                          % (socket, port))
+        self.wait_for_log("VHOST_CONFIG: (%s) binding succeeded" % socket)
+        return socket
