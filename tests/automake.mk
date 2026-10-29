@@ -347,11 +347,7 @@ PYTEST_TOOL_CHECK = \
 check-valgrind: all $(valgrind_wrappers) $(check_DATA)
 	$(call PYTEST_TOOL_CHECK,valgrind,$(VALGRIND),$(TESTSUITE),'$(abs_top_srcdir)/tests/unit')
 check-ovsdb-cluster-valgrind: all $(valgrind_wrappers) $(check_DATA)
-	$(SHELL) '$(OVSDB_CLUSTER_TESTSUITE)' -C tests CHECK_VALGRIND=true VALGRIND='$(VALGRIND)' AUTOTEST_PATH='tests/valgrind:$(AUTOTEST_PATH)' -d $(TESTSUITEFLAGS) -j1
-	@echo
-	@echo '----------------------------------------------------------------------'
-	@echo 'Valgrind output can be found in tests/ovsdb-cluster-testsuite.dir/*/valgrind.*'
-	@echo '----------------------------------------------------------------------'
+	$(call PYTEST_TOOL_CHECK,valgrind,$(VALGRIND),$(OVSDB_CLUSTER_TESTSUITE),'$(abs_top_srcdir)/tests/ovsdb_cluster',-j1)
 check-kernel-valgrind: all $(valgrind_wrappers) $(check_DATA)
 	$(call PYTEST_TOOL_CHECK,valgrind,$(VALGRIND),$(SYSTEM_KMOD_TESTSUITE),'$(abs_top_srcdir)/tests/system' --datapath=system,-j1)
 check-userspace-valgrind: all $(valgrind_wrappers) $(check_DATA)
@@ -420,8 +416,14 @@ check-dpdk: all
 clean-local:
 	test ! -f '$(TESTSUITE)' || $(SHELL) '$(TESTSUITE)' -C tests --clean
 
-# Run OVSDB cluster tests.
+# Run OVSDB cluster tests through pytest (tests/ovsdb_cluster), or the
+# Autotest testsuite directly if pytest is not available.
 check-ovsdb-cluster: all
+	$(PYTEST_RUN) --basetemp='$(abs_top_builddir)/tests/pytest.dir' \
+	    '$(abs_top_srcdir)/tests/ovsdb_cluster'; \
+	rc=$$?; \
+	if test $$rc -ne 77; then exit $$rc; fi; \
+	echo "Running the Autotest testsuite without pytest."; \
 	set $(SHELL) '$(OVSDB_CLUSTER_TESTSUITE)' -C tests  AUTOTEST_PATH='$(AUTOTEST_PATH)'; \
 	"$$@" $(TESTSUITEFLAGS) -j1 || (test X'$(RECHECK)' = Xyes && "$$@" --recheck)
 
@@ -605,6 +607,8 @@ PYTEST_PYFILES = \
 	tests/lib/report.py \
 	tests/lib/slots.py \
 	tests/lib/tools.py \
+	tests/ovsdb_cluster/__init__.py \
+	tests/ovsdb_cluster/test_autotest.py \
 	tests/run-pytest.py \
 	tests/system/__init__.py \
 	tests/system/conftest.py \
