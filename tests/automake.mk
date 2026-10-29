@@ -167,7 +167,6 @@ SYSTEM_USERSPACE_TESTSUITE_AT = \
 
 SYSTEM_TSO_TESTSUITE_AT = \
 	tests/system-tso-testsuite.at \
-	tests/system-tap.at \
 	tests/system-tso-macros.at
 
 SYSTEM_AFXDP_TESTSUITE_AT = \
@@ -633,6 +632,7 @@ PYTEST_PYFILES = \
 	tests/system/test_dpdk.py \
 	tests/system/test_dpdk_offloads.py \
 	tests/system/test_infra.py \
+	tests/system/test_tso.py \
 	tests/unit/__init__.py \
 	tests/unit/conftest.py \
 	tests/unit/test_autotest.py \
