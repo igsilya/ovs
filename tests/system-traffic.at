@@ -3366,6 +3366,9 @@ AT_CAPTURE_FILE([ofctl_monitor.log])
 dnl Port status changes would show up in the monitor output.
 OVS_WAIT_FOR_PORT_LIVE([br0], [ovs-p0])
 OVS_WAIT_FOR_PORT_LIVE([br0], [ovs-p1])
+dnl Remove datapath flows of the traffic that came before the OpenFlow
+dnl rules, e.g., IPv6 MLD reports, that would still send packet-ins.
+AT_CHECK([ovs-appctl revalidator/purge])
 AT_CHECK([ovs-ofctl monitor br0 65534 invalid_ttl --detach --no-chdir --pidfile 2> ofctl_monitor.log])
 
 dnl Send an unsolicited reply from port 2. This should be dropped.
@@ -3415,6 +3418,9 @@ AT_CAPTURE_FILE([ofctl_monitor.log])
 dnl Port status changes would show up in the monitor output.
 OVS_WAIT_FOR_PORT_LIVE([br0], [ovs-p0])
 OVS_WAIT_FOR_PORT_LIVE([br0], [ovs-p1])
+dnl Remove datapath flows of the traffic that came before the OpenFlow
+dnl rules, e.g., IPv6 MLD reports, that would still send packet-ins.
+AT_CHECK([ovs-appctl revalidator/purge])
 AT_CHECK([ovs-ofctl monitor br0 65534 invalid_ttl --detach --no-chdir --pidfile 2> ofctl_monitor.log])
 
 dnl Send an unsolicited reply from port 2. This should be dropped.
@@ -6278,6 +6284,9 @@ AT_CAPTURE_FILE([ofctl_monitor.log])
 dnl Port status changes would show up in the monitor output.
 OVS_WAIT_FOR_PORT_LIVE([br0], [ovs-p0])
 OVS_WAIT_FOR_PORT_LIVE([br0], [ovs-p1])
+dnl Remove datapath flows of the traffic that came before the OpenFlow
+dnl rules, e.g., IPv6 MLD reports, that would still send packet-ins.
+AT_CHECK([ovs-appctl revalidator/purge])
 AT_CHECK([ovs-ofctl monitor br0 65534 invalid_ttl --detach --no-chdir --pidfile 2> ofctl_monitor.log])
 
 dnl Simple SCTP association local and remote single homing
