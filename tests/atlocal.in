@@ -178,6 +178,16 @@ find_command nft
 
 CURL_OPT="-g -v --max-time 1 --retry 2 --retry-delay 1 --connect-timeout 1"
 
+# In active FTP mode, curl fails with "Weird server reply" if the server
+# replies on the control connection before curl accepted the data
+# connection, which is not a transient error for '--retry'.  Retry all the
+# errors, if supported (curl 7.71.0 or newer).
+if curl --retry-all-errors --version > /dev/null 2>&1; then
+    CURL_FTP_ACTIVE_OPT="--retry-all-errors"
+else
+    CURL_FTP_ACTIVE_OPT=""
+fi
+
 # Determine whether "diff" supports "normal" diffs.  (busybox diff does not.)
 if echo xyzzy | diff /dev/null - | grep '^>' >/dev/null; then
     DIFF_SUPPORTS_NORMAL_FORMAT=yes

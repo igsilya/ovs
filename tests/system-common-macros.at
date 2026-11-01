@@ -298,7 +298,7 @@ m4_define([OVS_GET_FTP],
 #
 m4_define([OVS_GET_FTP_ACTIVE],
     [curl ftp://$1 --retry 3 --max-time 1 --retry-connrefused -v \
-        --ftp-port - $2]
+        --ftp-port - $CURL_FTP_ACTIVE_OPT $2]
 )
 
 # OVS_CHECK_FIREWALL()
