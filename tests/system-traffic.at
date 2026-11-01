@@ -1790,6 +1790,10 @@ NS_CHECK_EXEC([at_ns0], [ping -q -c 3 -i 0.3 -W 2 10.1.1.2 | FORMAT_PING], [0], 
 3 packets transmitted, 3 received, 0% packet loss, time 0ms
 ])
 
+dnl The controller action is executed by the handler threads and the packet-in
+dnl is sent asynchronously, while the cloned reply goes to at_ns0 right away.
+dnl So, ping may finish before the last packet-in reaches the monitor.
+OVS_WAIT_UNTIL([test $(grep -c "csum:" ofctl_monitor.log) -ge 3])
 OVS_APP_EXIT_AND_WAIT([ovs-ofctl])
 
 AT_CHECK([cat ofctl_monitor.log | STRIP_MONITOR_CSUM], [0], [dnl
