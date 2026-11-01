@@ -1683,6 +1683,8 @@ process_upcall(struct udpif *udpif, struct upcall *upcall,
 static void
 handle_upcalls(struct udpif *udpif, struct upcall *upcalls,
                size_t n_upcalls)
+    /* New ukeys are kept locked across iterations, see below. */
+    OVS_NO_THREAD_SAFETY_ANALYSIS
 {
     struct dpif_op *opsp[UPCALL_MAX_BATCH * 2];
     struct ukey_op ops[UPCALL_MAX_BATCH * 2];
@@ -1707,7 +1709,10 @@ handle_upcalls(struct udpif *udpif, struct upcall *upcalls,
         if (should_install_flow(udpif, upcall)) {
             struct udpif_key *ukey = upcall->ukey;
 
-            if (ukey_install(udpif, ukey)) {
+            /* The ukey stays locked until its flow is installed, so the
+             * revalidators don't touch it before that, e.g., don't try to
+             * delete the flow that doesn't exist yet. */
+            if (ukey_install__(udpif, ukey)) {
                 upcall->ukey_persists = true;
                 put_op_init(&ops[n_ops++], ukey, DPIF_FP_CREATE);
             }
@@ -1741,7 +1746,7 @@ handle_upcalls(struct udpif *udpif, struct upcall *upcalls,
         struct udpif_key *ukey = ops[i].ukey;
 
         if (ukey) {
-            ovs_mutex_lock(&ukey->mutex);
+            /* Locked by ukey_install__() above. */
             if (ops[i].dop.error) {
                 transition_ukey(ukey, UKEY_EVICTED);
             } else if (ukey->state < UKEY_OPERATIONAL) {
@@ -3042,6 +3047,10 @@ revalidator_sweep__(struct revalidator *revalidator, bool purge)
                 continue;
             }
             ukey_state = ukey->state;
+            /* Flows of UKEY_VISIBLE ukeys may be installed already, e.g.,
+             * by the userspace datapath right after the upcall callback,
+             * so purge them as well.  Handlers keep the ukeys locked until
+             * they install the flows, so these are skipped above. */
             if (ukey_state == UKEY_OPERATIONAL
                 || (ukey_state == UKEY_INCONSISTENT)
                 || (ukey_state == UKEY_VISIBLE && purge)) {
