@@ -19,7 +19,7 @@ import types
 
 import pytest
 
-from tests.system.lib import features, retis
+from tests.system.lib import features, ipsec, retis
 from tests.system.lib.conntrack import ConntrackEntry, format_ct
 from tests.system.lib.features import DatapathConfig, check_requirements
 from tests.system.lib.ping import PingResult, parse_ping
@@ -154,6 +154,20 @@ def test_testsuite_names():
         == "system-dpdk-testsuite"
     assert autotest_suite_name(dp("userspace", dpdk=True, offload=True)) \
         == "system-dpdk-offloads-testsuite"
+
+
+class TestIPsec:
+    @pytest.mark.parametrize("output, version", [
+        ("Libreswan 5.4\n", (5, 4)),
+        ("Libreswan 4.12\n", (4, 12)),
+        ("Linux Libreswan U3.32/K5.14 (XFRM)\n", (3, 32)),
+        ("Libreswan v4.6\n", (4, 6)),
+        ("strongSwan 5.9\n", ()),
+    ])
+    def test_libreswan_version(self, monkeypatch, output, version):
+        monkeypatch.setattr(ipsec, "run", lambda cmd, **kwargs:
+                            types.SimpleNamespace(stdout=output))
+        assert ipsec.libreswan_version() == version
 
 
 class TestHugepages:

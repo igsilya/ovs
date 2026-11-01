@@ -25,6 +25,7 @@ import re
 import shutil
 import signal
 import tempfile
+import threading
 
 from tests.lib.cmd import log_line, run, wait_until, wait_while
 from tests.lib.env import srcdir
@@ -32,20 +33,55 @@ from tests.lib.process import process_alive
 from tests.system.lib.ping import check_ping
 
 
+# 'ovs-pki req+sign' updates the files of the certificate authority.
+_ca_lock = threading.Lock()
+
+
+def _pki(base, args):
+    run("ovs-pki -b -d %s -l %s/ovs-pki.log %s" % (base, base, args),
+        stdout=True, stderr=True)
+
+
+def pki_init(ovs):
+    """Create a certificate authority in the test directory.
+
+    Returns:
+        The path of the certificate of the authority, the ``ca_cert`` for
+        ``IPsecNode.ca_signed_cert()``.
+    """
+    _pki(ovs.test_dir, "--force init")
+    return os.path.join(ovs.test_dir, "switchca", "cacert.pem")
+
+
+def libreswan_version():
+    """Return the version of Libreswan as a tuple of integers."""
+    out = run("ipsec --version", stdout=True).stdout
+    m = re.search(r"Libreswan (?:U|v)?(\d+(?:\.\d+)*)", out)
+    return tuple(int(x) for x in m.group(1).split(".")) if m else ()
+
+
 class _Pluto:
     """The Libreswan IKE daemon of a node, stopped with ``close()``."""
 
     def __init__(self, ns, base, rundir):
+        self.ns = ns
+        self.base = base
+        self.rundir = rundir
         self.pidfile = os.path.join(rundir, "pluto.pid")
         os.makedirs(os.path.join(base, "ipsec.d"), exist_ok=True)
         for name in ("ipsec.conf", "secrets"):
             open(os.path.join(base, name), "a").close()
         run("ipsec initnss --nssdir %s/ipsec.d" % base, stdout=True,
             stderr=True)
-        ns.exec("ipsec pluto --config %s/ipsec.conf --ipsecdir %s "
-                "--nssdir %s/ipsec.d --logfile %s/pluto.log "
-                "--secretsfile %s/secrets --rundir %s"
-                % (base, base, base, base, base, rundir), stderr=True)
+        self.start()
+
+    def start(self):
+        base = self.base
+        self.ns.exec("ipsec pluto --config %s/ipsec.conf --ipsecdir %s "
+                     "--nssdir %s/ipsec.d --logfile %s/pluto.log "
+                     "--secretsfile %s/secrets --rundir %s"
+                     % (base, base, base, base, base, self.rundir),
+                     stderr=True)
 
     def close(self):
         try:
@@ -59,6 +95,18 @@ class _Pluto:
         except ProcessLookupError:
             return
         wait_while(lambda: process_alive(pid), description="pluto to exit")
+
+
+class _StatusSaver:
+    """Saves 'ipsec status' of a node to 'status' in its directory when
+    the node stops, for debugging."""
+
+    def __init__(self, node):
+        self.node = node
+
+    def close(self):
+        with open(os.path.join(self.node.base, "status"), "w") as f:
+            f.write(self.node.status())
 
 
 class _TempDir:
@@ -83,6 +131,8 @@ class IPsecNode:
 
     def __init__(self, ovs, name, dev, address, peer):
         self.name = name
+        self.pki_dir = ovs.test_dir
+        self.cert = None
         self.ns = ovs.netns(name)
         # No duplicates on this underlay network.
         for conf in ("all", "default"):
@@ -103,7 +153,8 @@ class IPsecNode:
         # have a short path, see https://github.com/libreswan/libreswan/
         # issues/428.
         self.rundir = self.node.track(_TempDir("ovs-ipsec-")).path
-        self.node.track(_Pluto(self.ns, base, self.rundir))
+        self.pluto = self.node.track(_Pluto(self.ns, base, self.rundir))
+        self.node.track(_StatusSaver(self))
         self.node.start_daemon(
             "ovs-monitor-ipsec", "unix:%s/db.sock" % base,
             "--pidfile=%s/ovs-monitor-ipsec.pid" % base,
@@ -121,13 +172,107 @@ class IPsecNode:
         # an extra one.
         self.node.vsctl("add-br br-ipsec")
 
+    def status(self):
+        """Return the output of 'ipsec status'."""
+        r = run("ipsec --rundir %s status" % self.rundir, rc=None,
+                stdout=True, stderr=True)
+        return r.stdout + r.stderr
+
+    def pluto_running(self):
+        return not re.search(r"is Pluto running\?|refused", self.status())
+
+    def restart_pluto(self):
+        """Start pluto again, e.g., after it crashed."""
+        log_line("pluto of %s is not running, restarting" % self.name)
+        self.pluto.start()
+
+    def set_certificate(self, cert, key, ca_cert=None):
+        """Use certificate ``cert`` with private key ``key``, and the
+        certificate authority ``ca_cert``, if any."""
+        self.cert = cert
+        self.node.vsctl("set Open_vSwitch . other_config:certificate=%s "
+                        "other_config:private_key=%s%s"
+                        % (cert, key, " other_config:ca_cert=%s" % ca_cert
+                           if ca_cert else ""))
+
+    def _pki_path(self, suffix):
+        return os.path.join(self.pki_dir, "%s-%s.pem" % (self.name, suffix))
+
+    def self_signed_cert(self):
+        """Create a self-signed certificate for this node and use it.
+
+        The peers need it as ``options:remote_cert``.
+
+        Returns:
+            The path of the certificate.
+        """
+        for args in ("req -u %s", "self-sign %s"):
+            _pki(self.pki_dir, args % self.name)
+        self.set_certificate(self._pki_path("cert"),
+                             self._pki_path("privkey"))
+        return self.cert
+
+    def ca_signed_cert(self, ca_cert):
+        """Create a certificate for this node, signed by the authority
+        created with ``pki_init()``, and use it.
+
+        The peers refer to it with ``options:remote_name=<name>``.
+
+        Returns:
+            The path of the certificate.
+        """
+        with _ca_lock:
+            _pki(self.pki_dir, "req+sign -u %s" % self.name)
+        self.set_certificate(self._pki_path("cert"),
+                             self._pki_path("privkey"), ca_cert)
+        return self.cert
+
+    def monitor_log(self):
+        """Return the contents of the log of ovs-monitor-ipsec."""
+        try:
+            with open(os.path.join(self.base, "ovs-monitor-ipsec.log"),
+                      errors="replace") as f:
+                return f.read()
+        except OSError:
+            return ""
+
+    def delete_connection(self, conn):
+        """Delete IPsec connection ``conn`` from pluto."""
+        # 'ipsec auto' is deprecated in Libreswan 5.
+        auto = "" if run("ipsec auto --help", rc=None, stdout=True,
+                         stderr=True).stderr else "auto"
+        run("ipsec %s --ctlsocket %s/pluto.ctl --config %s/ipsec.conf "
+            "--delete %s" % (auto, self.rundir, self.base, conn),
+            stdout=True)
+
     def connections(self):
         """Return the numbers of (loaded, active) IPsec connections."""
-        status = run("ipsec --rundir %s status" % self.rundir,
-                     stdout=True).stdout
         m = re.search(r"Total IPsec connections:.*loaded (\d+).*active "
-                      r"(\d+)", status)
+                      r"(\d+)", self.status())
         return (int(m.group(1)), int(m.group(2))) if m else (0, 0)
+
+    def wait_for_connections(self, loaded, active=False, revive=False,
+                             timeout=None):
+        """Wait for ``loaded`` connections to be loaded into pluto.
+
+        Args:
+            loaded: The expected number of loaded connections.
+            active: Whether to also wait for all of them to be active.
+            revive: Whether to start pluto again if it crashed while
+                waiting, unfortunately it happens.
+            timeout: Maximum time in seconds.  Defaults to
+                ``ctl_timeout()``.
+        """
+        def ready():
+            if revive and not self.pluto_running():
+                self.restart_pluto()
+                return False
+            n_loaded, n_active = self.connections()
+            return n_loaded == loaded and (not active or n_active == loaded)
+
+        wait_until(ready, timeout=timeout,
+                   description="%d IPsec connections %s on %s"
+                   % (loaded, "active" if active else "loaded", self.name))
 
     def add_tunnel(self, tunnel_type, options):
         """Add tunnel port 'tun' to 'br-ipsec', like IPSEC_ADD_TUNNEL.
@@ -137,10 +282,7 @@ class IPsecNode:
         """
         self.node.vsctl("add-port br-ipsec tun -- set Interface tun type=%s "
                         "%s" % (tunnel_type, options))
-        n = 1 if tunnel_type == "gre" else 2
-        wait_until(lambda: self.connections()[0] == n,
-                   description="%d IPsec connections loaded on %s"
-                   % (n, self.name))
+        self.wait_for_connections(1 if tunnel_type == "gre" else 2)
 
 
 def check_esp_traffic(ovs, left, right):

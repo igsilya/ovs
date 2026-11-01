@@ -27,6 +27,7 @@ from tests.lib.cmd import (
     caller_location,
     grep_lines,
     ns_name,
+    parallel,
     run,
     sort_lines,
     wait_until,
@@ -228,3 +229,32 @@ class TestFilters:
     def test_sort_lines(self):
         assert sort_lines("c\na\nb\n") == "a\nb\nc\n"
         assert sort_lines("") == ""
+
+
+class TestParallel:
+    def test_results_in_order(self):
+        def slow_square(x):
+            time.sleep(0.01 * (5 - x))
+            return x * x
+
+        assert parallel(slow_square, range(5)) == [0, 1, 4, 9, 16]
+        assert parallel(slow_square, []) == []
+
+    def test_failure(self):
+        started = []
+        finished = []
+
+        def fn(x):
+            started.append(x)
+            if x == 0:
+                raise RuntimeError("item %d failed" % x)
+            time.sleep(0.2)
+            finished.append(x)
+
+        # Two workers: items that didn't start before the failure are
+        # cancelled.
+        with pytest.raises(RuntimeError, match="item 0 failed"):
+            parallel(fn, range(10), max_workers=2)
+        assert len(started) < 10
+        # The calls that were running are finished.
+        assert sorted(finished) == sorted(set(started) - {0})

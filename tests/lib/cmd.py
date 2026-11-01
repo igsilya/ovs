@@ -32,6 +32,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from concurrent import futures
 
 log = logging.getLogger("ovs.test")
 
@@ -323,6 +324,37 @@ def wait_until(fn, timeout=None, description=None):
     log_line("   wait_until: timed out after %ss" % timeout,
              location=False, level=logging.ERROR)
     raise WaitTimeout(desc, timeout)
+
+
+def parallel(fn, items, max_workers=32):
+    """Call ``fn`` for every item in threads, return the results in order.
+
+    If a call fails, the calls that didn't start yet are cancelled, the
+    running ones are waited for, all the failures are logged, and the first
+    one is raised.  So, no thread is left running when this returns, e.g.,
+    while the fixtures tear the test down.
+    """
+    items = list(items)
+    if not items:
+        return []
+    with futures.ThreadPoolExecutor(
+            max_workers=min(max_workers, len(items))) as pool:
+        fs = [pool.submit(fn, item) for item in items]
+        done, pending = futures.wait(fs,
+                                     return_when=futures.FIRST_EXCEPTION)
+        for f in pending:
+            f.cancel()
+        futures.wait(fs)
+
+    errors = [f.exception() for f in fs
+              if not f.cancelled() and f.exception() is not None]
+    if errors:
+        for item, f in zip(items, fs):
+            if not f.cancelled() and f.exception() is not None:
+                log_line("parallel: %r failed: %s" % (item, f.exception()),
+                         level=logging.ERROR)
+        raise errors[0]
+    return [f.result() for f in fs]
 
 
 def wait_while(fn, timeout=None, description=None):

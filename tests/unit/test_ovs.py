@@ -20,7 +20,7 @@ import signal
 
 import pytest
 
-from tests.lib.cmd import run, wait_until
+from tests.lib.cmd import parallel, run, wait_until
 from tests.lib.ovs import OVSError, OVSNodeDummy, check_logs, check_stderr
 from tests.lib.process import process_alive
 
@@ -225,6 +225,40 @@ class TestOVSNodeDummy:
             grandchild.vsctl("list-br", stdout=[])
         assert not process_alive(child_pid)
         assert parent._children == []
+
+    def test_parallel_children(self, test_dir):
+        pids = []
+
+        def add_child(i):
+            child = parent.create_node("hv%d" % i)
+            child.start()
+            pids.append(read_pid(child, "ovs-vswitchd"))
+            if i == 2:
+                raise RuntimeError("child %d failed" % i)
+            return child
+
+        # A failure in one of the threads leaves no child running.
+        with pytest.raises(RuntimeError, match="child 2 failed"):
+            with OVSNodeDummy(test_dir) as parent:
+                parallel(add_child, range(4), max_workers=4)
+        assert len(pids) == 4
+        for pid in pids:
+            assert not process_alive(pid)
+        assert parent._children == []
+
+        # So does a failure in a parallel stop.
+        test_dir = os.path.join(test_dir, "second")
+        os.mkdir(test_dir)
+        with OVSNodeDummy(test_dir) as parent:
+            children = parallel(add_child, [0, 1, 3])
+            with open(os.path.join(children[0].test_dir,
+                                   "ovs-vswitchd.log"), "a") as f:
+                f.write("2026-01-01T00:00:00Z|1|bridge|WARN|fake warning\n")
+            with pytest.raises(OVSError, match="fake warning"):
+                parallel(lambda child: child.stop(), children)
+            assert parent._children == []
+        for pid in pids:
+            assert not process_alive(pid)
 
     def test_child_stopped_explicitly(self, test_dir):
         with OVSNodeDummy(test_dir) as parent:
