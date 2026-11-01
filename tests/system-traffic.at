@@ -4895,12 +4895,13 @@ OVS_WAIT_UNTIL([grep "listening" tcpdump0_err])
 
 dnl Send UDP packet from 10.1.1.1:1234 to 10.1.1.240:80
 AT_CHECK([ovs-ofctl packet-out br0 "in_port=ovs-p0,packet=f00000010102f0000001010108004500002944c140004011df100a0101010a0101f004d2005000156b24646573745f756e72656163680a,actions=resubmit(,0)"])
+dnl The connection is committed after the recirculation, asynchronously, by
+dnl the upcall handler.  Wait for it, otherwise the reply is not related.
+OVS_WAIT_UNTIL_EQUAL([ovs-appctl dpctl/dump-conntrack | grep "orig=.src=10\.1\.1\.1," | sort], [dnl
+udp,orig=(src=10.1.1.1,dst=10.1.1.240,sport=1234,dport=80),reply=(src=10.1.1.2,dst=10.1.1.1,sport=8080,dport=1234)])
+
 dnl Send "destination unreachable" response
 AT_CHECK([ovs-ofctl packet-out br0 "in_port=ovs-p1,packet=f00000010101f00000010102080045c000456a3700004001f9bc0a0101020a01010103031328000000004500002944c140004011dffe0a0101010a01010204d21f9000154cd2646573745f756e72656163680a,actions=resubmit(,0)"])
-
-AT_CHECK([ovs-appctl dpctl/dump-conntrack | grep "orig=.src=10\.1\.1\.1," | sort], [0], [dnl
-udp,orig=(src=10.1.1.1,dst=10.1.1.240,sport=1234,dport=80),reply=(src=10.1.1.2,dst=10.1.1.1,sport=8080,dport=1234)
-])
 
 OVS_WAIT_UNTIL([ovs-pcap p0.pcap | grep -q "f00000010101f00000010102080045c000456a3700004001f8ce0a0101f00a01010103031416000000004500002944c140004011df100a0101010a0101f004d2005000156b24646573745f756e72656163680a"])
 
@@ -8875,12 +8876,13 @@ OVS_WAIT_UNTIL([grep "listening" tcpdump0_err])
 
 dnl Send UDP packet from [[fc00::1]]:1234 to [[fc00::240]]:80
 AT_CHECK([ovs-ofctl packet-out br0 "in_port=ovs-p0,packet=f00000010102f0000001010186dd60066ced00151140fc000000000000000000000000000001fc00000000000000000000000000024004d20050001587d4646573745f756e72656163680a,actions=resubmit(,0)"])
+dnl The connection is committed after the recirculation, asynchronously, by
+dnl the upcall handler.  Wait for it, otherwise the reply is not related.
+OVS_WAIT_UNTIL_EQUAL([ovs-appctl dpctl/dump-conntrack | grep "orig=.src=fc00::1," | sort], [dnl
+udp,orig=(src=fc00::1,dst=fc00::240,sport=1234,dport=80),reply=(src=fc00::2,dst=fc00::1,sport=8080,dport=1234)])
+
 dnl Send "destination unreachable" response
 AT_CHECK([ovs-ofctl packet-out br0 "in_port=ovs-p1,packet=f00000010101f0000001010286dd600733ed00453a40fc000000000000000000000000000002fc000000000000000000000000000001010428550000000060066ced00151140fc000000000000000000000000000001fc00000000000000000000000000000204d21f9000156ad2646573745f756e72656163680a,actions=resubmit(,0)"])
-
-AT_CHECK([ovs-appctl dpctl/dump-conntrack | grep "orig=.src=fc00::1," | sort], [0], [dnl
-udp,orig=(src=fc00::1,dst=fc00::240,sport=1234,dport=80),reply=(src=fc00::2,dst=fc00::1,sport=8080,dport=1234)
-])
 
 OVS_WAIT_UNTIL([ovs-pcap p0.pcap | grep -q "f00000010101f0000001010286dd600733ed00453a40fc000000000000000000000000000240fc000000000000000000000000000001010426170000000060066ced00151140fc000000000000000000000000000001fc00000000000000000000000000024004d20050001587d4646573745f756e72656163680a"])
 
