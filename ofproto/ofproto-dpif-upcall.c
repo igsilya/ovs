@@ -1034,16 +1034,24 @@ udpif_revalidator(void *arg)
 
         /* Wait for the leader to reach this point. */
         ovs_barrier_block(&udpif->reval_barrier);
-        if (udpif->pause) {
+
+        /* Once resumed from the pause, the leader may start the next
+         * iteration and update these before other revalidators check them.
+         * Use the values of this iteration, so all the revalidators agree
+         * on whether to exit. */
+        bool pause = udpif->pause;
+        bool reval_exit = udpif->reval_exit;
+
+        if (pause) {
             revalidator_pause(revalidator);
-            if (!udpif->reval_exit) {
+            if (!reval_exit) {
                 /* The main thread resumed all validators, but the leader
                  * didn't start the dump, go to next iteration. */
                 continue;
             }
         }
 
-        if (udpif->reval_exit) {
+        if (reval_exit) {
             break;
         }
         revalidate(revalidator);
