@@ -4163,7 +4163,6 @@ AT_CLEANUP
 
 AT_SETUP([conntrack - zones from other field, more tests])
 CHECK_CONNTRACK()
-OVS_CHECK_GITHUB_ACTION()
 OVS_TRAFFIC_VSWITCHD_START()
 
 ADD_NAMESPACES(at_ns0, at_ns1)
@@ -4202,10 +4201,29 @@ AT_CHECK([ovs-appctl dpctl/dump-flows --names filter=in_port=ovs-p0 dnl
 
 AT_CHECK([ovs-ofctl mod-flows br0 'priority=100,ct_state=-trk,tcp,in_port="ovs-p0" actions=ct(table=0,zone=15,commit,exec(load:0xffff000f->NXM_NX_CT_LABEL[[0..31]]))'])
 
+dnl The reply traffic must be tracked in the same zone.  Otherwise, the
+dnl connection in zone 15 never sees the SYN-ACK and the following packets
+dnl of the client are invalid, have no label and are committed to zone 0
+dnl instead.  Two of them committing the same new connection in parallel
+dnl upcalls fail with "execute ct(commit),3 failed (Invalid argument)".
+AT_CHECK([ovs-ofctl mod-flows br0 'priority=100,ct_state=-trk,tcp,in_port="ovs-p1" actions=ct(table=0,zone=15)'])
+AT_CHECK([ovs-ofctl add-flow br0 'priority=100,ct_state=+trk,ct_zone=15,tcp,in_port="ovs-p1" actions=ovs-p0'])
+
 dnl Wait for a flow flush as some datapaths (read TC) might take time to clear.
 AT_CHECK([ovs-appctl revalidator/wait], [0])
 
 NS_CHECK_EXEC([at_ns0], OVS_GET_HTTP([10.1.1.2]), [0], [ignore], [ignore])
+
+AT_CHECK([ovs-appctl dpctl/dump-conntrack | FORMAT_CT(10.1.1.2)], [0], [dnl
+tcp,dnl
+orig=(src=10.1.1.1,dst=10.1.1.2,sport=<cleared>,dport=<cleared>),dnl
+reply=(src=10.1.1.2,dst=10.1.1.1,sport=<cleared>,dport=<cleared>),dnl
+zone=15,labels=0xffff000f,protoinfo=(state=<cleared>)
+tcp,dnl
+orig=(src=10.1.1.1,dst=10.1.1.2,sport=<cleared>,dport=<cleared>),dnl
+reply=(src=10.1.1.2,dst=10.1.1.1,sport=<cleared>,dport=<cleared>),dnl
+zone=5,labels=0xffff0005,protoinfo=(state=<cleared>)
+])
 
 AT_CHECK([ovs-appctl dpctl/dump-flows --names filter=in_port=ovs-p0 dnl
               | grep "+trk" | sed 's/0xffff000f\/0xffff/0xf\/0xffff/' dnl
