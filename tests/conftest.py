@@ -45,6 +45,7 @@ def pytest_configure(config):
 
 
 def pytest_terminal_summary(terminalreporter, config):
+    report.summarize_skipped(terminalreporter)
     tool = tools.selected(config)
     if tool is None:
         return

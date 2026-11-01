@@ -188,3 +188,32 @@ def pytest_runtest_teardown(item, nextitem):
     path = artifact_dir(item)
     if path:
         shutil.rmtree(path, ignore_errors=True)
+
+
+def skipped_tests(terminalreporter):
+    """Return (nodeid, reason) of the skipped tests, sorted by nodeid."""
+    skipped = []
+    for rep in terminalreporter.stats.get("skipped", []):
+        reason = rep.longrepr
+        if isinstance(reason, tuple) and len(reason) == 3:
+            reason = reason[2]
+        reason = str(reason)
+        if reason.startswith("Skipped: "):
+            reason = reason[len("Skipped: "):]
+        skipped.append((rep.nodeid, reason))
+    return sorted(skipped)
+
+
+def summarize_skipped(terminalreporter):
+    """List the skipped tests with the reasons.
+
+    pytest's own summary ('-rs') groups the skips by location and reason,
+    without the names of the tests, and all the Autotest tests are skipped
+    at the same location.
+    """
+    skipped = skipped_tests(terminalreporter)
+    if not skipped:
+        return
+    terminalreporter.section("skipped tests")
+    for nodeid, reason in skipped:
+        terminalreporter.write_line("SKIPPED %s: %s" % (nodeid, reason))

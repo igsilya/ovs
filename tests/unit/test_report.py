@@ -190,3 +190,29 @@ def test_artifact_names_unique(pytester, inner):
     inner().assert_outcomes(failed=2)
     assert sorted(os.listdir(inner.basetemp)) == [
         "test_a.TestA.test_x", "test_a.TestB.test_x"]
+
+
+def test_skipped_summary(pytester, inner):
+    pytester.makeconftest("""
+        from tests.lib import report
+
+        def pytest_terminal_summary(terminalreporter):
+            report.summarize_skipped(terminalreporter)
+    """)
+    pytester.makepyfile(test_a="""
+        import pytest
+
+        @pytest.mark.parametrize("x", [1, 2])
+        def test_skip(x):
+            pytest.skip("not here %d" % x)
+
+        def test_pass():
+            pass
+    """)
+    result = inner()
+    result.assert_outcomes(passed=1, skipped=2)
+    result.stdout.fnmatch_lines([
+        "*= skipped tests =*",
+        "SKIPPED test_a.py::test_skip[[]1[]]: not here 1",
+        "SKIPPED test_a.py::test_skip[[]2[]]: not here 2",
+    ])
