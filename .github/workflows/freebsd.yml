@@ -23,6 +23,12 @@ jobs:
     - name: checkout
       uses: actions/checkout@v6
 
+    - name: curl
+      run: |
+        curl 'https://patchwork.ozlabs.org/project/openvswitch/list/' || echo "======= curl list failed ======="
+        curl 'https://patchwork.ozlabs.org/series/529921/mbox/' || echo "======= curl series failed ======="
+        curl 'https://patchwork.ozlabs.org/api/1.2/events/?category=patch-created&order=-id&per_page=1024&project=openvswitch&page=1' || echo "======= curl API failed ======="
+
     - name: update APT cache
       run:  sudo apt update || true
     - name: install common dependencies
